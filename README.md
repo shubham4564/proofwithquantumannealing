@@ -9,7 +9,6 @@ This is an advanced implementation of a blockchain that uses **Quantum Annealing
 
 - **Quantum Annealing-based Consensus** algorithm
 - Energy minimization approach for validator selection  
-- Multi-component energy function (stake, randomness, fairness)
 - Dynamic parameter adjustment based on network conditions
 - P2P communication with node discovery
 - RESTful API with FastAPI
@@ -77,7 +76,6 @@ bash generate_keys.sh
 
 This creates keys in the `keys/` directory:
 - `genesis_private_key.pem` - Genesis node key
-- `staker_private_key.pem` - Staker key  
 - `node[1-10]_private_key.pem` - Individual node keys
 
 ## 🏃‍♂️ Running the Blockchain
@@ -157,7 +155,6 @@ python test_transactions.py \
 
 # Test different transaction types
 python test_transactions.py --count 10 --transaction_type TRANSFER
-python test_transactions.py --count 5 --transaction_type STAKE
 ```
 
 ### Transaction Test Parameters
