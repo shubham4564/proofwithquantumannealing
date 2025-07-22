@@ -20,16 +20,6 @@ This is an advanced implementation of a blockchain that uses **Quantum Annealing
 
 ⚠️ **Note**: This is a research and demonstration project. Not intended for production use.
 
-## 🔬 Quantum Annealing Consensus
-
-The quantum annealing consensus mechanism uses quantum-inspired optimization principles:
-
-- **Energy Minimization**: Validators selected based on multi-factor energy function
-- **Fairness Component**: Prevents monopolization through balanced selection criteria
-- **Quantum-Inspired Randomness**: Adds unpredictability while maintaining security
-- **Dynamic Adaptation**: Parameters adjust automatically to network conditions
-
-For detailed technical documentation, see [blockchain/documentation/QUANTUM_ANNEALING_CONSENSUS.md](blockchain/documentation/QUANTUM_ANNEALING_CONSENSUS.md).
 
 ## 📋 Prerequisites
 
@@ -334,13 +324,6 @@ proofwithquantumannealing/
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🔗 Related Documentation
-
-- [Quantum Annealing Consensus Technical Details](blockchain/documentation/QUANTUM_ANNEALING_CONSENSUS.md)
-- [Complete Operations Guide](blockchain/documentation/COMPLETE_OPERATIONS_GUIDE.md)
-- [Performance Testing Guide](blockchain/documentation/PERFORMANCE_GUIDE.md)
-- [IEEE Compliance Summary](blockchain/documentation/IEEE_COMPLIANCE_SUMMARY.md)
 
 ## 📞 Support
 
