@@ -19,8 +19,8 @@ if ($NumNodes -lt 1 -or $NumNodes -gt 100) {
 
 Write-Host "Starting $NumNodes blockchain nodes..." -ForegroundColor Green
 
-# Set Python executable path
-$pythonExe = "D:\proofwithquantumannealing\.winvenv\Scripts\python.exe"
+# Set Python executable path (relative to project root)
+$pythonExe = "..\.winvenv\Scripts\python.exe"
 
 # Kill any existing python processes for clean start
 Get-Process -Name "python" -ErrorAction SilentlyContinue | Stop-Process -Force
