@@ -204,28 +204,14 @@ python batch_performance_test.py
 
 ### Blockchain Information
 - `GET /api/v1/blockchain/` - Get blockchain state
-- `GET /api/v1/blockchain/blocks/` - Get all blocks
-- `GET /api/v1/blockchain/blocks/{block_hash}` - Get specific block
-
-### Transaction Operations  
-- `POST /api/v1/transaction/` - Submit new transaction
-- `GET /api/v1/transaction/{tx_hash}` - Get transaction details
-- `GET /api/v1/transaction/pool/` - Get transaction pool
 
 ### Quantum Consensus Metrics
 - `GET /api/v1/blockchain/quantum-metrics/` - Get quantum consensus data
-- `GET /api/v1/blockchain/forgers/` - Get forger statistics
-- `GET /api/v1/blockchain/energy-function/` - Get energy function details
 
 ### Example API Calls
 ```bash
 # Get blockchain info
 curl http://localhost:11000/api/v1/blockchain/
-
-# Submit a transaction
-curl -X POST http://localhost:11000/api/v1/transaction/ \
-  -H "Content-Type: application/json" \
-  -d '{"from": "sender_address", "to": "receiver_address", "amount": 10}'
 
 # Get quantum metrics
 curl http://localhost:11000/api/v1/blockchain/quantum-metrics/
