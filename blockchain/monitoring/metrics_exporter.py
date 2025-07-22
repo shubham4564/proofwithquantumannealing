@@ -30,7 +30,7 @@ import base64
 class MetricsExporter:
     """Export blockchain metrics in various formats"""
     
-    def __init__(self, num_nodes: int = 3, base_api_port: int = 8050):
+    def __init__(self, num_nodes: int = 3, base_api_port: int = 11000):
         self.num_nodes = num_nodes
         self.base_api_port = base_api_port
         self.collected_data = {
@@ -601,7 +601,7 @@ def main():
                        default='json', help="Export format")
     parser.add_argument("--output", default="./", help="Output directory")
     parser.add_argument("--nodes", type=int, default=3, help="Number of nodes to collect from")
-    parser.add_argument("--api-port", type=int, default=8050, help="Base API port")
+    parser.add_argument("--api-port", type=int, default=11000, help="Base API port")
     parser.add_argument("--include-charts", action="store_true", help="Include charts in HTML export")
     
     args = parser.parse_args()

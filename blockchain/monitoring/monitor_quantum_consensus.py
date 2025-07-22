@@ -10,8 +10,8 @@ import sys
 import os
 
 # Add blockchain module to path
-sys.path.append('/Users/shubham/Documents/proofwithquantumannealing')
-sys.path.append('/Users/shubham/Documents/proofwithquantumannealing/blockchain')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from blockchain.transaction.wallet import Wallet
 from blockchain.utils.helpers import BlockchainUtils
@@ -71,7 +71,7 @@ def main():
     
     # Discover available nodes
     available_nodes = []
-    for port in range(8050, 8070):
+    for port in range(11000, 11100):
         if get_node_status(port):
             available_nodes.append(port)
     
@@ -100,7 +100,7 @@ def main():
             
             # Send a transaction to trigger consensus
             target_node = available_nodes[transaction_count % len(available_nodes)]
-            print(f"📤 Sending transaction to Node {target_node - 8050} (port {target_node})")
+            print(f"📤 Sending transaction to Node {target_node - 11000} (port {target_node})")
             
             success = send_transaction(target_node, sender_wallet, 
                                      receiver_wallet.public_key_string(), 
@@ -125,7 +125,7 @@ def main():
             # Display quantum consensus activity
             print(f"🌌 QUANTUM CONSENSUS STATUS")
             for port, data in quantum_data.items():
-                node_id = port - 8050
+                node_id = port - 11000
                 consensus_type = data.get('consensus_type', 'Unknown')
                 total_nodes = data.get('total_nodes', 0)
                 active_nodes = data.get('active_nodes', 0)
@@ -158,7 +158,7 @@ def main():
         for port in available_nodes:
             metrics = get_quantum_metrics(port)
             if metrics:
-                node_id = port - 8050
+                node_id = port - 11000
                 probe_count = metrics.get('probe_count', 0)
                 consensus_type = metrics.get('consensus_type', 'Unknown')
                 print(f"   Node {node_id}: {probe_count} probes, Type: {consensus_type}")
