@@ -57,7 +57,7 @@ mdurl==0.1.2
 minorminer==0.2.19
 multidict==6.6.3
 mypy_extensions==1.1.0
-networkx==3.5
+networkx==3.4.2
 numpy==2.3.1
 orjson==3.11.0
 p2pnetwork==1.2
