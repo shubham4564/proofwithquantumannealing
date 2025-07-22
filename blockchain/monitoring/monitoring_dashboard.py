@@ -69,7 +69,7 @@ class PerformanceSnapshot:
 class BlockchainMonitor:
     """Real-time blockchain monitoring system"""
     
-    def __init__(self, num_nodes: int = 3, base_api_port: int = 8050):
+    def __init__(self, num_nodes: int = 3, base_api_port: int = 11000):
         self.num_nodes = num_nodes
         self.base_api_port = base_api_port
         self.monitoring_active = False
@@ -537,7 +537,7 @@ def main():
     parser.add_argument("--interval", type=int, default=5, help="Update interval in seconds")
     parser.add_argument("--save-logs", action="store_true", help="Save metrics to CSV logs")
     parser.add_argument("--log-dir", default="./monitoring_logs", help="Directory for log files")
-    parser.add_argument("--api-port", type=int, default=8050, help="Base API port")
+    parser.add_argument("--api-port", type=int, default=11000, help="Base API port")
     
     args = parser.parse_args()
     

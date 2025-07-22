@@ -19,7 +19,7 @@ from blockchain.utils.helpers import BlockchainUtils
 def get_node_status(port):
     """Get status from a specific node"""
     try:
-        response = requests.get(f"http://localhost:{port}/api/v1/blockchain/info/", timeout=2)
+        response = requests.get(f"http://localhost:{port}/api/v1/blockchain/", timeout=2)
         if response.status_code == 200:
             return response.json()
     except:
@@ -58,7 +58,7 @@ def send_transaction(port, wallet, to_address, amount):
             "signature": signature
         }
         
-        response = requests.post(f"http://localhost:{port}/api/v1/transactions/", 
+        response = requests.post(f"http://localhost:{port}/api/v1/transaction/create/", 
                                json=payload, timeout=5)
         return response.status_code == 200
     except Exception as e:
