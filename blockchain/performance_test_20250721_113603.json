@@ -1,0 +1,106 @@
+{
+  "summary": {
+    "test_duration": {
+      "total_time_seconds": 40.32650017738342,
+      "transaction_period_seconds": 9.84066390991211,
+      "consensus_period_seconds": 30.013912200927734
+    },
+    "transaction_metrics": {
+      "total_generated": 100,
+      "total_submitted": 100,
+      "total_successful": 100,
+      "success_rate_percent": 100.0,
+      "timing": {
+        "avg_signing_time_ms": 3.3847713470458984,
+        "avg_submission_time_ms": 708.3205699920654,
+        "avg_total_transaction_time_ms": 711.7053413391113,
+        "min_transaction_time_ms": 6.09898567199707,
+        "max_transaction_time_ms": 2061.037063598633,
+        "std_transaction_time_ms": 505.052626358568
+      }
+    },
+    "consensus_metrics": {
+      "total_blocks_created": 4280,
+      "total_consensus_rounds": 107,
+      "avg_consensus_time_seconds": 0.28028591548171,
+      "min_consensus_time_seconds": 9.5367431640625e-07,
+      "max_consensus_time_seconds": 0.30940985679626465,
+      "blocks_per_round": 40.0,
+      "consensus_efficiency": 106.1336833390858
+    },
+    "throughput_metrics": {
+      "overall_tps": 2.4797589565206963,
+      "peak_tps": 0,
+      "avg_tps_10s_window": 0,
+      "transactions_per_block": 0.02336448598130841
+    },
+    "node_performance": {
+      "7": {
+        "transactions_sent": 15,
+        "transactions_successful": 15,
+        "avg_response_time": 0.9894399325052896,
+        "blocks_created": 0
+      },
+      "3": {
+        "transactions_sent": 12,
+        "transactions_successful": 12,
+        "avg_response_time": 0.6995152433713278,
+        "blocks_created": 0
+      },
+      "8": {
+        "transactions_sent": 9,
+        "transactions_successful": 9,
+        "avg_response_time": 0.46178290579054093,
+        "blocks_created": 0
+      },
+      "1": {
+        "transactions_sent": 7,
+        "transactions_successful": 7,
+        "avg_response_time": 0.0942697184426444,
+        "blocks_created": 0
+      },
+      "9": {
+        "transactions_sent": 15,
+        "transactions_successful": 15,
+        "avg_response_time": 0.8601376374562582,
+        "blocks_created": 0
+      },
+      "6": {
+        "transactions_sent": 15,
+        "transactions_successful": 15,
+        "avg_response_time": 0.6654308478037516,
+        "blocks_created": 0
+      },
+      "2": {
+        "transactions_sent": 11,
+        "transactions_successful": 11,
+        "avg_response_time": 0.9445114135742188,
+        "blocks_created": 0
+      },
+      "5": {
+        "transactions_sent": 6,
+        "transactions_successful": 6,
+        "avg_response_time": 0.5258960326512655,
+        "blocks_created": 0
+      },
+      "10": {
+        "transactions_sent": 6,
+        "transactions_successful": 6,
+        "avg_response_time": 0.8794393539428711,
+        "blocks_created": 0
+      },
+      "4": {
+        "transactions_sent": 4,
+        "transactions_successful": 4,
+        "avg_response_time": 0.2687939405441284,
+        "blocks_created": 0
+      }
+    }
+  },
+  "test_config": {
+    "num_transactions": 100,
+    "batch_size": 30,
+    "monitor_duration": 30
+  },
+  "timestamp": "20250721_113603"
+}
