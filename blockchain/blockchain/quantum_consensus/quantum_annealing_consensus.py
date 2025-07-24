@@ -7,6 +7,7 @@ import hashlib
 import json
 import secrets
 import socket
+import importlib.util
 from typing import Dict, List, Tuple, Optional
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -93,12 +94,14 @@ class VerifiableUptimeRecord:
 
 # Import scalability configuration
 try:
-    # Try to import scalability config
+    # Try to import scalability config using importlib for dynamic loading
     config_path = os.path.join(os.path.dirname(__file__), '../../monitoring/scalability_config.py')
     if os.path.exists(config_path):
-        sys.path.insert(0, os.path.dirname(config_path))
-        from scalability_config import ScalabilityConfig
-        SCALABILITY_CONFIG = ScalabilityConfig()
+        # Use importlib to dynamically load the module
+        spec = importlib.util.spec_from_file_location("scalability_config", config_path)
+        scalability_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(scalability_module)
+        SCALABILITY_CONFIG = scalability_module.ScalabilityConfig()
     else:
         # Fallback configuration
         class FallbackConfig:
@@ -113,7 +116,7 @@ try:
             @staticmethod
             def get_candidate_limit(node_count): return min(50, node_count)
         SCALABILITY_CONFIG = FallbackConfig()
-except ImportError:
+except (ImportError, AttributeError, FileNotFoundError):
     # Fallback configuration if import fails
     class FallbackConfig:
         MAX_CANDIDATE_NODES = 50
