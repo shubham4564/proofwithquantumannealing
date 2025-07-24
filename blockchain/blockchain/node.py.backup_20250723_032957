@@ -178,7 +178,7 @@ class Node:
                 time.sleep(0.1)  # Brief delay to allow quantum consensus calculations
                 
             logger.info({
-                "message": "30-second interval reached, attempting quantum consensus forging",
+                "message": "10-second interval reached, attempting quantum consensus forging",
                 "source": "API" if from_api else "P2P"
             })
             self.forge()

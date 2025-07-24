@@ -9,19 +9,21 @@ These settings can be easily adjusted based on network requirements and performa
 class BlockConfig:
     """Block configuration constants and utilities."""
     
-    # Block size limits (in bytes)
-    DEFAULT_MAX_BLOCK_SIZE = 1024      # 1KB - default maximum block size
-    MIN_BLOCK_SIZE = 200               # Minimum block size to prevent tiny blocks
-    MAX_BLOCK_SIZE = 10 * 1024 * 1024  # 10MB - absolute maximum to prevent abuse
+    # Block size limits (in bytes) - Updated for 10 MB default
+    DEFAULT_MAX_BLOCK_SIZE = 10 * 1024 * 1024  # 10MB - new default maximum block size
+    MIN_BLOCK_SIZE = 200                       # Minimum block size to prevent tiny blocks
+    MAX_BLOCK_SIZE = 12 * 1024 * 1024          # 12MB - absolute maximum to allow some flexibility
     
     # Common block size presets (in bytes)
     BLOCK_SIZE_PRESETS = {
-        'tiny': 512,        # 512 bytes
-        'small': 1024,      # 1KB (default)
-        'medium': 4096,     # 4KB
-        'large': 16384,     # 16KB
-        'xlarge': 65536,    # 64KB
-        'xxlarge': 262144,  # 256KB
+        'tiny': 512,              # 512 bytes
+        'small': 1024,            # 1KB
+        'medium': 4096,           # 4KB
+        'large': 16384,           # 16KB
+        'xlarge': 65536,          # 64KB
+        'xxlarge': 262144,        # 256KB
+        'default': 10 * 1024 * 1024,  # 10MB - new default
+        'max': 12 * 1024 * 1024,      # 12MB - maximum
     }
     
     # Block overhead estimation (bytes)

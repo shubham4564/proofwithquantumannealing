@@ -110,13 +110,26 @@ def get_detailed_blockchain_data(node_port=11000):
 def get_quantum_metrics(node_port=11000):
     """Get quantum consensus metrics from a node"""
     try:
-        url = f'http://localhost:{node_port}/api/v1/quantum-metrics/'
+        url = f'http://localhost:{node_port}/api/v1/blockchain/quantum-metrics/'
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             return response.json()
         return None
     except:
         return None
+
+def get_active_nodes(api_ports):
+    """Get list of active nodes by checking their API endpoints"""
+    active_nodes = []
+    for port in api_ports:
+        try:
+            url = f'http://localhost:{port}/api/v1/blockchain/'
+            response = requests.get(url, timeout=2)
+            if response.status_code == 200:
+                active_nodes.append(port)
+        except:
+            continue
+    return active_nodes
 
 def analyze_forgers_and_metrics(api_ports):
     """Analyze which nodes forged blocks and their quantum metrics"""
@@ -234,6 +247,8 @@ def analyze_forgers_and_metrics(api_ports):
                     reverse=True
                 )
                 
+                probe_stats = metrics.get('probe_statistics', {})
+                
                 for node_id, scores in sorted_nodes[:5]:  # Show top 5 nodes
                     node_short = node_id[:30] + "..." if len(node_id) > 30 else node_id
                     
@@ -245,6 +260,12 @@ def analyze_forgers_and_metrics(api_ports):
                     success = scores.get('proposals_success', 0)
                     failed = scores.get('proposals_failed', 0)
                     
+                    # Get probe counts from probe_statistics
+                    node_probe_stats = probe_stats.get(node_id, {})
+                    probes_sent = node_probe_stats.get('probes_sent', 0)
+                    probes_received = node_probe_stats.get('probes_received', 0)
+                    witness_count = node_probe_stats.get('witness_count', 0)
+                    
                     # Format latency display
                     latency_str = f"{latency*1000:.1f}ms" if latency != float('inf') and latency < 999 else "∞"
                     
@@ -252,6 +273,7 @@ def analyze_forgers_and_metrics(api_ports):
                     print(f"            ⬆️  Uptime: {uptime:.3f} | 🚀 Latency: {latency_str} | 📈 Throughput: {throughput:.2f}")
                     print(f"            🎯 Suitability: {suitability:.4f} | ⚡ Effective: {effective:.4f}")
                     print(f"            ✅ Success: {success} | ❌ Failed: {failed}")
+                    print(f"            📡 Probes: ↗️{probes_sent} sent | ↙️{probes_received} recv | 👁️{witness_count} witness")
             
             # Protocol parameters
             if 'protocol_parameters' in metrics:
@@ -279,6 +301,26 @@ def analyze_forgers_and_metrics(api_ports):
                 print(f"         🚀 Latency: {weights.get('latency', 'N/A')}")
                 print(f"         📈 Throughput: {weights.get('throughput', 'N/A')}")
                 print(f"         📊 Past Performance: {weights.get('past_performance', 'N/A')}")
+            
+            # Probe statistics summary
+            if 'probe_statistics' in metrics and metrics['probe_statistics']:
+                print(f"      📡 Probe Statistics Summary:")
+                probe_stats = metrics['probe_statistics']
+                total_sent = sum(stats.get('probes_sent', 0) for stats in probe_stats.values())
+                total_received = sum(stats.get('probes_received', 0) for stats in probe_stats.values())
+                total_witness = sum(stats.get('witness_count', 0) for stats in probe_stats.values())
+                active_probe_nodes = len([node for node, stats in probe_stats.items() 
+                                        if stats.get('probes_sent', 0) > 0 or stats.get('probes_received', 0) > 0])
+                
+                print(f"         📤 Total Probes Sent: {total_sent}")
+                print(f"         📥 Total Probes Received: {total_received}")
+                print(f"         👁️  Total Witness Events: {total_witness}")
+                print(f"         🔄 Active Probe Nodes: {active_probe_nodes}")
+                
+                if active_probe_nodes > 0:
+                    avg_sent = total_sent / active_probe_nodes
+                    avg_received = total_received / active_probe_nodes
+                    print(f"         📊 Avg Probes/Node: ↗️{avg_sent:.1f} sent | ↙️{avg_received:.1f} recv")
     else:
         print("   ❌ No quantum metrics available from any node")
     
@@ -316,7 +358,10 @@ def get_forger_performance_correlation(forger_stats, node_metrics):
                 'throughput': matching_metrics.get('throughput', 0),
                 'suitability_score': matching_metrics.get('suitability_score', 0),
                 'proposals_success': matching_metrics.get('proposals_success', 0),
-                'proposals_failed': matching_metrics.get('proposals_failed', 0)
+                'proposals_failed': matching_metrics.get('proposals_failed', 0),
+                'probes_sent': matching_metrics.get('probes_sent', 0),
+                'probes_received': matching_metrics.get('probes_received', 0),
+                'witness_count': matching_metrics.get('witness_count', 0)
             })
     
     if correlations:
@@ -324,33 +369,47 @@ def get_forger_performance_correlation(forger_stats, node_metrics):
         correlations.sort(key=lambda x: x['blocks_forged'], reverse=True)
         
         print(f"   📊 Forger Performance vs Quantum Metrics:")
-        print(f"   {'Rank':<4} {'Blocks':<6} {'Uptime':<8} {'Latency':<10} {'Throughput':<11} {'Suitability':<12} {'Success/Fail':<12}")
-        print(f"   {'-'*4} {'-'*6} {'-'*8} {'-'*10} {'-'*11} {'-'*12} {'-'*12}")
+        print(f"   {'Rank':<4} {'Forger':<25} {'Blks':<4} {'Uptime':<7} {'Latency':<9} {'Thput':<7} {'Suit':<8} {'S/F':<8} {'Probes S/R/W':<12}")
+        print(f"   {'-'*4} {'-'*25} {'-'*4} {'-'*7} {'-'*9} {'-'*7} {'-'*8} {'-'*8} {'-'*12}")
         
         for i, corr in enumerate(correlations, 1):
+            forger_short = corr['forger'][:20] + "..." if len(corr['forger']) > 23 else corr['forger'][:23]
             latency_str = f"{corr['latency']*1000:.1f}ms" if corr['latency'] != float('inf') else "∞"
             success_fail = f"{corr['proposals_success']}/{corr['proposals_failed']}"
+            probe_stats = f"{corr['probes_sent']}/{corr['probes_received']}/{corr['witness_count']}"
             
-            print(f"   {i:<4} {corr['blocks_forged']:<6} {corr['uptime']:.3f}    "
-                  f"{latency_str:<10} {corr['throughput']:<11.2f} {corr['suitability_score']:<12.4f} {success_fail:<12}")
+            print(f"   {i:<4} {forger_short:<25} {corr['blocks_forged']:<4} {corr['uptime']:.3f}   "
+                  f"{latency_str:<9} {corr['throughput']:<7.2f} {corr['suitability_score']:<8.4f} {success_fail:<8} {probe_stats:<12}")
         
         # Calculate some basic statistics
         total_blocks = sum(c['blocks_forged'] for c in correlations)
         avg_uptime = sum(c['uptime'] for c in correlations) / len(correlations)
         active_forgers = sum(1 for c in correlations if c['blocks_forged'] > 0)
+        total_probes_sent = sum(c['probes_sent'] for c in correlations)
+        total_probes_received = sum(c['probes_received'] for c in correlations)
+        total_witness_events = sum(c['witness_count'] for c in correlations)
         
-        print(f"\n   📈 Correlation Summary:")
+        print(f"\n   📈 Network Performance Summary:")
         print(f"      🏆 Active Forgers: {active_forgers}")
         print(f"      📦 Total Blocks: {total_blocks}")
         print(f"      ⬆️  Average Uptime: {avg_uptime:.3f}")
+        print(f"      📤 Total Probes Sent: {total_probes_sent}")
+        print(f"      📥 Total Probes Received: {total_probes_received}")
+        print(f"      👁️  Total Witness Events: {total_witness_events}")
         
         # Find the most efficient forger
         if correlations:
             best_forger = max(correlations, key=lambda x: x['suitability_score'])
-            print(f"      🥇 Highest Suitability: Node with {best_forger['suitability_score']:.4f} score")
+            print(f"      🥇 Highest Suitability: {best_forger['suitability_score']:.4f} score")
             
             most_productive = max(correlations, key=lambda x: x['blocks_forged'])
             print(f"      🔥 Most Productive: {most_productive['blocks_forged']} blocks forged")
+            
+            most_probing = max(correlations, key=lambda x: x['probes_sent'])
+            print(f"      📡 Most Active Prober: {most_probing['probes_sent']} probes sent")
+            
+            best_witness = max(correlations, key=lambda x: x['witness_count'])
+            print(f"      👁️  Best Witness: {best_witness['witness_count']} witness events")
     else:
         print("   ❌ No correlations found between forgers and quantum metrics")
     
@@ -480,13 +539,17 @@ def run_transaction_test_with_detailed_timing(num_transactions):
     stop_monitoring.set()
     monitoring_thread.join()
     
-    # Get final blockchain state
+    # Get active nodes only
+    active_api_ports = get_active_nodes(api_ports)
+    print(f"\n🌐 Detected {len(active_api_ports)} active nodes out of {len(api_ports)} configured")
+    
+    # Get final blockchain state from active nodes only
     print(f"\n📊 Final blockchain status with timing analysis:")
     max_blocks = 0
     min_blocks = float('inf')
     total_pool_size = 0
     
-    for i, port in enumerate(api_ports, 1):
+    for i, port in enumerate(active_api_ports, 1):
         blocks, pool_size = get_blockchain_status(port)
         max_blocks = max(max_blocks, blocks)
         min_blocks = min(min_blocks, blocks)
@@ -779,12 +842,16 @@ def run_forger_analysis():
     print(f"\n⏳ Waiting {wait_time} seconds for quantum consensus and forging...")
     time.sleep(wait_time)
     
-    print(f"\n📊 Final blockchain status across all 10 nodes:")
+    # Get active nodes only for final status
+    active_api_ports = get_active_nodes(api_ports)
+    print(f"\n🌐 Detected {len(active_api_ports)} active nodes out of {len(api_ports)} configured")
+    
+    print(f"\n📊 Final blockchain status across active nodes:")
     max_blocks = 0
     min_blocks = float('inf')
     total_pool_size = 0
     
-    for i, port in enumerate(api_ports, 1):
+    for i, port in enumerate(active_api_ports, 1):
         blocks, pool_size = get_blockchain_status(port)
         max_blocks = max(max_blocks, blocks)
         min_blocks = min(min_blocks, blocks)

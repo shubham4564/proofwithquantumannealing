@@ -111,16 +111,36 @@ class SocketCommunication(Node):
                     # Discovery messages are frequent - batch process them
                     self.peer_discovery_handler.handle_message(message)
                 elif message.message_type == "TRANSACTION":
+                    # Legacy direct transaction broadcast (deprecated)
                     transaction = message.data
                     self.node.handle_transaction(transaction)
+                elif message.message_type == "INV":
+                    # Bitcoin-style inventory announcement
+                    self.node.handle_inventory(connected_node, message.data)
+                elif message.message_type == "GETDATA":
+                    # Request for specific transaction/block data
+                    self.node.handle_getdata(connected_node, message.data)
+                elif message.message_type == "TX":
+                    # Transaction data response
+                    self.node.handle_transaction_data(message.data)
                 elif message.message_type == "BLOCK":
+                    # Legacy direct block broadcast
                     block = message.data
                     self.node.handle_block(block)
+                elif message.message_type == "BLOCK_DATA":
+                    # Block data response
+                    self.node.handle_block_data(message.data)
                 elif message.message_type == "BLOCKCHAINREQUEST":
                     self.node.handle_blockchain_request(connected_node)
                 elif message.message_type == "BLOCKCHAIN":
                     blockchain = message.data
                     self.node.handle_blockchain(blockchain)
+                elif message.message_type == "PING":
+                    # Respond to ping with pong
+                    self.node.handle_ping(connected_node, message.data)
+                elif message.message_type == "PONG":
+                    # Handle pong response
+                    self.node.handle_pong(connected_node, message.data)
             except Exception as e:
                 # Silently handle decode errors to prevent log spam
                 pass

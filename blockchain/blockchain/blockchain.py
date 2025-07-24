@@ -15,6 +15,10 @@ class Blockchain:
         self.account_model = AccountModel()
         self.quantum_consensus = QuantumAnnealingConsensus()  # Quantum annealing consensus mechanism
         
+        # Performance optimizations
+        self._known_participants_cache = set()  # Cache for known network participants
+        self._genesis_key_cache = None  # Cache for genesis key
+        
         # Block size configuration - flexible and adjustable
         self.max_block_size_bytes = max_block_size or BlockConfig.DEFAULT_MAX_BLOCK_SIZE
         self.min_block_size_bytes = BlockConfig.MIN_BLOCK_SIZE
@@ -128,12 +132,19 @@ class Blockchain:
         return False
 
     def get_covered_transaction_set(self, transactions):
+        """
+        Optimized transaction coverage validation with early exit for failed transactions.
+        Returns covered transactions and stops processing on first invalid transaction.
+        """
         covered_transactions = []
         for transaction in transactions:
             if self.transaction_covered(transaction):
                 covered_transactions.append(transaction)
             else:
-                logging.error("Transaction is not covered by sender")
+                logging.error(f"Transaction not covered by sender: {transaction.sender_public_key[:20]}...")
+                # Early exit optimization: if any transaction is invalid, 
+                # the entire block is invalid
+                return []
         return covered_transactions
 
     def transaction_covered(self, transaction):
@@ -256,7 +267,7 @@ class Blockchain:
                     return True
         return False
 
-    def forger_valid(self, block):
+    def forger_valid(self, block, signature_pre_validated=False):
         """
         Validate that the block forger has authority to forge using Leader-Based Consensus.
         
@@ -266,8 +277,12 @@ class Blockchain:
         
         This implements proper Leader-Based Consensus validation:
         1. Verify the forger is a registered network participant
-        2. Verify the block signature matches the claimed forger
+        2. Verify the block signature matches the claimed forger (if not pre-validated)
         3. Trust the quantum consensus selection (avoid re-calculation)
+        
+        Args:
+            block: Block to validate
+            signature_pre_validated: If True, skip signature verification (optimization)
         """
         actual_forger = block.forger
         
@@ -281,19 +296,19 @@ class Blockchain:
             })
             return False
         
-        # 2. Verify block signature authenticity (already done in node.py, but double-check)
-        # Use the same format as node.py: block.payload() (bytes), not hex
-        block_payload = block.payload()
-        signature = block.signature
-        
-        if not Wallet.signature_valid(block_payload, signature, actual_forger):
-            logger.warning({
-                "message": "Invalid block signature from claimed forger",
-                "forger": actual_forger[:30] + "..." if actual_forger else "None",
-                "block_number": block.block_count,
-                "reason": "Cryptographic signature verification failed"
-            })
-            return False
+        # 2. Verify block signature authenticity (skip if pre-validated for performance)
+        if not signature_pre_validated:
+            block_payload = block.payload()
+            signature = block.signature
+            
+            if not Wallet.signature_valid(block_payload, signature, actual_forger):
+                logger.warning({
+                    "message": "Invalid block signature from claimed forger",
+                    "forger": actual_forger[:30] + "..." if actual_forger else "None",
+                    "block_number": block.block_count,
+                    "reason": "Cryptographic signature verification failed"
+                })
+                return False
         
         # 3. Leader-Based Consensus: Trust the selection (no re-calculation)
         # In a properly functioning quantum consensus, the selected leader has authority
@@ -311,6 +326,7 @@ class Blockchain:
     def is_known_network_participant(self, public_key: str) -> bool:
         """
         Check if a public key belongs to a known network participant.
+        Optimized with caching for better performance.
         
         In Leader-Based Consensus, we validate that the forger is a legitimate
         network participant rather than re-calculating quantum selection.
@@ -318,13 +334,21 @@ class Blockchain:
         if not public_key:
             return False
         
+        # Check cache first for performance
+        if public_key in self._known_participants_cache:
+            return True
+
         # Check if the public key is registered in quantum consensus
         if public_key in self.quantum_consensus.nodes:
+            self._known_participants_cache.add(public_key)
             return True
         
         # Check against genesis key (bootstrap participant)
-        genesis_key = self.get_genesis_public_key()
-        if genesis_key and public_key == genesis_key:
+        if self._genesis_key_cache is None:
+            self._genesis_key_cache = self.get_genesis_public_key()
+            
+        if self._genesis_key_cache and public_key == self._genesis_key_cache:
+            self._known_participants_cache.add(public_key)
             return True
         
         # For development: accept any valid RSA public key format
@@ -335,6 +359,7 @@ class Blockchain:
                 "key_prefix": public_key[:50] + "...",
                 "reason": "Valid RSA public key format (development mode)"
             })
+            self._known_participants_cache.add(public_key)
             return True
         
         return False
@@ -348,10 +373,19 @@ class Blockchain:
             return None
 
     def transactions_valid(self, transactions):
-        covered_transactions = self.get_covered_transaction_set(transactions)
-        if len(covered_transactions) == len(transactions):
+        """
+        Optimized transaction validation with early exit.
+        Returns False immediately on first invalid transaction.
+        """
+        # Quick check: empty transaction list is valid
+        if not transactions:
             return True
-        return False
+            
+        # Early exit optimization: validate each transaction and stop on first failure
+        for transaction in transactions:
+            if not self.transaction_covered(transaction):
+                return False
+        return True
 
     def get_quantum_metrics(self):
         """Get quantum annealing consensus metrics for monitoring and analysis"""
@@ -362,6 +396,7 @@ class Blockchain:
             "total_nodes": consensus_metrics.get('total_nodes', 0),
             "active_nodes": consensus_metrics.get('active_nodes', 0),
             "probe_count": consensus_metrics.get('probe_count', 0),
+            "probe_statistics": consensus_metrics.get('probe_statistics', {}),
             "node_scores": consensus_metrics.get('node_scores', {}),
             "protocol_parameters": {
                 "max_delay_tolerance": self.quantum_consensus.max_delay_tolerance,
@@ -374,5 +409,15 @@ class Blockchain:
                 "latency": self.quantum_consensus.weight_latency,
                 "throughput": self.quantum_consensus.weight_throughput,
                 "past_performance": self.quantum_consensus.weight_past_performance
+            },
+            "cache_stats": {
+                "known_participants_cached": len(self._known_participants_cache),
+                "genesis_key_cached": self._genesis_key_cache is not None
             }
         }
+
+    def clear_validation_caches(self):
+        """Clear validation caches to free memory or force refresh"""
+        self._known_participants_cache.clear()
+        self._genesis_key_cache = None
+        logger.info("Validation caches cleared")

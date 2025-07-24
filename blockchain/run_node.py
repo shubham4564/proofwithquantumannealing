@@ -49,6 +49,14 @@ if __name__ == "__main__":
         default=None,
         help="The path to the key file of the node (optional).",
     )
+    parser.add_argument(
+        "--p2p_mode",
+        required=False,
+        type=str,
+        choices=["enhanced", "legacy"],
+        default="enhanced",
+        help="P2P communication mode: 'enhanced' for Bitcoin-style INV/GETDATA, 'legacy' for direct broadcast (default: enhanced).",
+    )
     args = parser.parse_args()
 
     # Set up signal handlers for graceful shutdown
@@ -80,15 +88,21 @@ if __name__ == "__main__":
             "node_port": args.node_port,
             "api_port": args.api_port,
             "ip": args.ip,
-            "key_file": args.key_file
+            "key_file": args.key_file,
+            "p2p_mode": args.p2p_mode
         })
 
         # Create and start the node
         node = Node(args.ip, args.node_port, args.key_file)
 
-        # Start P2P communication
-        logger.info({"message": "Starting P2P communication"})
-        node.start_p2p()
+        # Start P2P communication with specified mode
+        logger.info({"message": f"Starting P2P communication in {args.p2p_mode} mode"})
+        if args.p2p_mode == "enhanced":
+            node.start_p2p(enhanced=True)
+            print(f"🚀 Enhanced P2P started with Bitcoin-style INV/GETDATA protocol")
+        else:
+            node.start_p2p(enhanced=False)
+            print(f"🚀 Legacy P2P started with direct broadcast")
 
         # Start API server (this now runs in a separate thread)
         logger.info({"message": "Starting API server"})

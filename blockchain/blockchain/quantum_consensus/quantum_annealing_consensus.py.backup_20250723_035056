@@ -93,8 +93,10 @@ class VerifiableUptimeRecord:
 
 # Import scalability configuration
 try:
+    import sys
+    import os
     # Try to import scalability config
-    config_path = os.path.join(os.path.dirname(__file__), '../../monitoring/scalability_config.py')
+    config_path = os.path.join(os.path.dirname(__file__), '../../../monitoring/scalability_config.py')
     if os.path.exists(config_path):
         sys.path.insert(0, os.path.dirname(config_path))
         from scalability_config import ScalabilityConfig
@@ -760,17 +762,41 @@ class QuantumAnnealingConsensus:
 
     def execute_scalable_probe_protocol(self, candidate_nodes: List[str]):
         """
-        Execute full probe protocol for comprehensive verification.
-        Uses complete O(n²) probing for maximum security and accuracy.
+        Execute probe protocol with optimized sampling for large-scale networks.
+        Uses O(sqrt(n)) sampling instead of O(n²) full probing.
         """
         total_candidates = len(candidate_nodes)
         
-        # Always use full probe protocol for maximum security and verification
-        print(f"🔍 Executing FULL probe protocol for {total_candidates} nodes")
-        print(f"   This will perform {total_candidates * (total_candidates - 1)} probe operations")
+        if total_candidates <= 10:
+            # For small networks, probe all pairs
+            self.execute_full_probe_protocol(candidate_nodes)
+            return
+            
+        # For large networks, use strategic sampling with scalable parameters
+        sample_size = SCALABILITY_CONFIG.get_probe_sample_size(total_candidates)
         
-        # Execute full O(n²) probe protocol regardless of network size
-        self.execute_full_probe_protocol(candidate_nodes)
+        # Sample high-performing nodes for probing
+        probe_sources = random.sample(candidate_nodes, min(sample_size, total_candidates))
+        
+        # Each source probes a limited number of targets (avoid O(n²) complexity)
+        targets_per_source = min(5, max(2, total_candidates // 10))
+        
+        for source in probe_sources:
+            # Select diverse targets (avoid clustering bias)
+            available_targets = [n for n in candidate_nodes if n != source]
+            target_count = min(targets_per_source, len(available_targets))
+            
+            if target_count > 0:
+                targets = random.sample(available_targets, target_count)
+                
+                for target in targets:
+                    # Select witness pool from remaining candidates
+                    witness_pool = [n for n in candidate_nodes if n not in [source, target]]
+                    witness_count = min(self.witness_quorum_size, len(witness_pool))
+                    
+                    if witness_count > 0:
+                        witnesses = random.sample(witness_pool, witness_count)
+                        self.execute_probe_protocol(source, target, witnesses)
     
     def execute_full_probe_protocol(self, nodes: List[str]):
         """Execute full O(n²) probe protocol for small networks"""
@@ -783,71 +809,6 @@ class QuantumAnnealingConsensus:
                     if witness_count > 0:
                         witnesses = random.sample(witness_pool, witness_count)
                         self.execute_probe_protocol(source, target, witnesses)
-
-    def execute_minimal_probe_protocol(self, nodes: List[str]):
-        """Execute minimal probe protocol for high-throughput consensus"""
-        # ULTRA-FAST: Only probe 3-5 pairs to verify basic connectivity
-        # This dramatically reduces the O(n²) complexity for maximum throughput
-        probe_count = min(3, max(1, len(nodes) // 4))  # Minimal probes: 1-3 total
-        
-        for i in range(probe_count):
-            source = nodes[i % len(nodes)]
-            target = nodes[(i + 1) % len(nodes)]
-            
-            if source != target:
-                # Skip witness collection for maximum speed (basic connectivity only)
-                witness_pool = [n for n in nodes if n not in [source, target]]
-                witness_count = min(1, len(witness_pool)) if len(witness_pool) > 2 else 0
-                
-                if witness_count > 0:
-                    witnesses = random.sample(witness_pool, witness_count)
-                    self.execute_probe_protocol(source, target, witnesses)
-                else:
-                    # Direct probe without witnesses for speed
-                    self.execute_direct_probe(source, target)
-
-    def execute_direct_probe(self, source_node: str, target_node: str):
-        """Execute ultra-fast direct probe without full cryptographic verification"""
-        # Simplified probe for maximum throughput - just update basic metrics
-        current_time = time.time()
-        
-        # Simulate basic latency measurement
-        latency = self.measure_real_network_latency(source_node, target_node)
-        
-        # Update minimal node metrics for consensus
-        if target_node in self.nodes:
-            self.nodes[target_node]['last_seen'] = current_time
-            if 'latency' not in self.nodes[target_node]:
-                self.nodes[target_node]['latency'] = latency
-        
-        # Minimal probe counting
-        self.increment_probe_sent_count(source_node)
-        self.increment_probe_received_count(target_node)
-
-    def execute_cached_probe_protocol(self, nodes: List[str]):
-        """Execute ultra-fast cached probe protocol for maximum throughput"""
-        # ULTRA OPTIMIZATION: Use cached/simulated probe results with minimal computation
-        current_time = time.time()
-        
-        # Only do 1-2 actual probes and simulate the rest for speed
-        actual_probes = min(2, len(nodes))
-        
-        for i in range(actual_probes):
-            source = nodes[i % len(nodes)]
-            target = nodes[(i + 1) % len(nodes)]
-            
-            if source != target:
-                # Ultra-fast direct probe without cryptographic overhead
-                self.execute_direct_probe(source, target)
-        
-        # Simulate all other node connectivity with cached results
-        for node_id in nodes:
-            if node_id in self.nodes:
-                self.nodes[node_id]['last_seen'] = current_time
-                if 'latency' not in self.nodes[node_id]:
-                    self.nodes[node_id]['latency'] = 0.025  # 25ms default
-                if 'throughput' not in self.nodes[node_id]:
-                    self.nodes[node_id]['throughput'] = 15.0  # Default throughput
 
     def verify_probe_proof(self, proof, verifier_node: str = "default") -> bool:
         """

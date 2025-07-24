@@ -4,11 +4,9 @@ import json
 class TransactionPool:
     def __init__(self):
         self.transactions = []
-        self.last_forge_time = 0
-        self.min_forge_interval = 8.0   # Reduced from 15 to 8 seconds - balance between CPU and responsiveness
-        self.max_forge_interval = 45.0  # Reduced from 60 to 45 seconds 
-        self.min_transactions_for_forging = 3  # Keep at 3 for batching
-        self.max_transactions_per_block = 15  # Keep larger blocks
+        self.last_forge_time = time.time()  # Initialize to current time
+        self.forge_interval = 30.0  # Extended to 30-second forging interval for CPU optimization
+        self.max_block_size_bytes = 10 * 1024 * 1024  # 10 MB block size limit
         
         # Block size considerations
         self.estimated_transaction_size = 300  # Bytes per transaction (rough estimate)
@@ -36,61 +34,52 @@ class TransactionPool:
     def forging_required(self):
         """
         Determine if forging is required based on:
-        1. Minimum transaction count (≥2)
-        2. Time-based constraints to prevent over-forging
-        3. Maximum wait time to ensure progress
+        1. Fixed 10-second interval - forging occurs every 10 seconds regardless of transaction count
+        2. No minimum transaction requirements - any number of transactions can be included
         """
         current_time = time.time()
         time_since_last_forge = current_time - self.last_forge_time
-        transaction_count = len(self.transactions)
         
-        # Must have minimum transactions
-        if transaction_count < self.min_transactions_for_forging:
-            return False
-        
-        # Respect minimum forging interval to prevent spam blocks
-        if time_since_last_forge < self.min_forge_interval:
-            return False
-            
-        # Force forging if we have transactions and max interval passed
-        if transaction_count >= self.min_transactions_for_forging and time_since_last_forge >= self.max_forge_interval:
-            return True
-            
-        # Allow forging if we have sufficient transactions and some time has passed
-        if transaction_count >= 6 and time_since_last_forge >= self.min_forge_interval:
-            return True
-            
-        # Allow forging if pool is getting full
-        if transaction_count >= self.max_transactions_per_block:
-            return True
+        # Forge every 10 seconds regardless of transaction count
+        if time_since_last_forge >= self.forge_interval:
             return True
             
         return False
     
     def get_transactions_for_block(self, max_block_size_bytes=None):
         """
-        Get transactions to include in the next block.
+        Get transactions for a new block, respecting the 10 MB block size limit.
+        Returns all available transactions that fit within the size limit.
         
         Args:
-            max_block_size_bytes (int, optional): Maximum block size in bytes.
-                                                 If provided, will estimate transaction count.
-        
-        Returns:
-            List of transactions for the block
-        """
-        if max_block_size_bytes is not None:
-            # Estimate how many transactions can fit in the block
-            # Account for block overhead (headers, metadata, etc.)
-            block_overhead = 200  # bytes
-            available_space = max_block_size_bytes - block_overhead
-            estimated_max_transactions = max(1, available_space // self.estimated_transaction_size)
+            max_block_size_bytes: Maximum block size in bytes (defaults to 10 MB)
             
-            # Use the smaller of: estimated max transactions, configured max, or available transactions
-            max_transactions = min(estimated_max_transactions, self.max_transactions_per_block, len(self.transactions))
-        else:
-            max_transactions = min(self.max_transactions_per_block, len(self.transactions))
+        Returns:
+            list: List of transactions that fit within the block size limit
+        """
+        if not self.transactions:
+            return []
         
-        return self.transactions[:max_transactions]
+        # Use 10 MB default or provided size limit
+        if max_block_size_bytes is None:
+            max_block_size_bytes = self.max_block_size_bytes
+        
+        selected_transactions = []
+        current_size = 0
+        
+        # Add transactions until we reach the size limit
+        for transaction in self.transactions:
+            transaction_size = self.estimate_transaction_size(transaction)
+            
+            # Check if adding this transaction would exceed the block size limit
+            if current_size + transaction_size <= max_block_size_bytes:
+                selected_transactions.append(transaction)
+                current_size += transaction_size
+            else:
+                # Stop adding transactions if we would exceed the limit
+                break
+        
+        return selected_transactions
     
     def estimate_transaction_size(self, transaction):
         """
@@ -142,5 +131,16 @@ class TransactionPool:
         return (estimated_pool_size + block_overhead) <= max_block_size_bytes
     
     def update_last_forge_time(self):
-        """Update the last forge time - should be called when a block is successfully created"""
+        """Update the last forge time to current time"""
         self.last_forge_time = time.time()
+    
+    def get_time_since_last_forge(self):
+        """Get the time elapsed since the last forge"""
+        return time.time() - self.last_forge_time
+    
+    def get_time_until_next_forge(self):
+        """Get the time remaining until the next 10-second forge interval"""
+        time_since_last = self.get_time_since_last_forge()
+        if time_since_last >= self.forge_interval:
+            return 0.0  # Ready to forge now
+        return self.forge_interval - time_since_last
