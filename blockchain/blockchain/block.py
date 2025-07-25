@@ -4,10 +4,10 @@ import json
 
 
 class Block:
-    def __init__(self, transactions, last_hash, forger, block_count):
+    def __init__(self, transactions, last_hash, block_proposer, block_count):
         self.transactions = transactions
         self.last_hash = last_hash
-        self.forger = forger
+        self.forger = block_proposer  # Field name kept as 'forger' for compatibility, but represents block proposer
         self.block_count = block_count
         self.timestamp = time.time()
         self.signature = ""

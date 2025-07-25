@@ -160,28 +160,28 @@ class Node:
                 # For P2P transactions, use gossip protocol with selective propagation
                 self._gossip_transaction_to_peers(tx_hash, exclude_peer=source_peer)
 
-        # Check if forging is needed
-        forging_required = self.transaction_pool.forging_required()
+        # Check if block proposal is needed
+        block_proposal_required = self.transaction_pool.forging_required()  # Method name kept for compatibility
         
-        if forging_required or len(self.transaction_pool.transactions) % 10 == 0:
+        if block_proposal_required or len(self.transaction_pool.transactions) % 10 == 0:
             logger.info({
-                "message": "Checking 10-second forging interval",
-                "forging_required": forging_required,
+                "message": "Checking 10-second block proposal interval",
+                "block_proposal_required": block_proposal_required,
                 "legacy_pool_size": len(self.transaction_pool.transactions),
                 "mempool_size": len(self.mempool.transactions),
                 "node_public_key": self.wallet.public_key_string()[:20] + "...",
                 "source": "API" if from_api else "P2P"
             })
         
-        if forging_required:
+        if block_proposal_required:
             if from_api:
                 time.sleep(0.1)  # Brief delay to allow quantum consensus calculations
                 
             logger.info({
-                "message": "30-second interval reached, attempting quantum consensus forging",
+                "message": "30-second interval reached, attempting quantum consensus block proposal",
                 "source": "API" if from_api else "P2P"
             })
-            self.forge()
+            self.propose_block()
 
     def handle_inventory(self, connected_node, inv_data):
         """
@@ -505,7 +505,7 @@ class Node:
         })
 
     def handle_block(self, block):
-        forger = block.forger
+        block_proposer = block.forger  # Note: block.forger field name kept for compatibility
         block_hash = block.payload()
         signature = block.signature
         
@@ -515,7 +515,7 @@ class Node:
         logger.info({
             "message": "Received block from network",
             "block_number": block.block_count,
-            "forger": forger[:30] + "..." if forger else "None",
+            "block_proposer": block_proposer[:30] + "..." if block_proposer else "None",
             "transactions_count": len(block.transactions),
             "current_blockchain_length": len(self.blockchain.blocks),
             "block_hash": block_hash_hex[:16] + "..."
@@ -573,17 +573,17 @@ class Node:
             return
 
         # Expensive validations only if lightweight ones pass
-        signature_valid = Wallet.signature_valid(block_hash, signature, forger)
-        forger_valid = self.blockchain.forger_valid(block, signature_pre_validated=signature_valid)
+        signature_valid = Wallet.signature_valid(block_hash, signature, block_proposer)
+        block_proposer_valid = self.blockchain.block_proposer_valid(block, signature_pre_validated=signature_valid)
         transactions_valid = self.blockchain.transactions_valid(block.transactions)
 
-        # Enhanced logging with forger mismatch details (only if all validations performed)
-        if signature_valid and forger_valid and transactions_valid:
+        # Enhanced logging with block proposer mismatch details (only if all validations performed)
+        if signature_valid and block_proposer_valid and transactions_valid:
             logger.info({
                 "message": "Block validation results - all passed",
                 "block_count_valid": True,
                 "last_block_hash_valid": True,
-                "forger_valid": True,
+                "block_proposer_valid": True,
                 "transactions_valid": True,
                 "signature_valid": True,
                 "optimization": "fast_path_success"
@@ -593,7 +593,7 @@ class Node:
                 "message": "Block validation results - some failed",
                 "block_count_valid": True,  # Already validated above
                 "last_block_hash_valid": True,  # Already validated above
-                "forger_valid": forger_valid,
+                "block_proposer_valid": block_proposer_valid,
                 "transactions_valid": transactions_valid,
                 "signature_valid": signature_valid
             })
@@ -603,10 +603,10 @@ class Node:
             self.request_chain()
 
         # Use proper Leader-Based Consensus validation (now implemented in blockchain.py)
-        # This includes the new forger validation that trusts quantum consensus selection
+        # This includes the new block proposer validation that trusts quantum consensus selection
         if (
             last_block_hash_valid
-            and forger_valid
+            and block_proposer_valid
             and transactions_valid
             and signature_valid
         ):
@@ -616,7 +616,7 @@ class Node:
                 "new_blockchain_length": len(self.blockchain.blocks) + 1,
                 "validations": {
                     "last_block_hash": last_block_hash_valid,
-                    "forger": forger_valid,
+                    "block_proposer": block_proposer_valid,
                     "transactions": transactions_valid,
                     "signature": signature_valid
                 }
@@ -635,13 +635,13 @@ class Node:
             logger.warning({
                 "message": "Block rejected due to core validation failures",
                 "block_number": block.block_count,
-                "forger": forger[:30] + "..." if forger else "None",
+                "block_proposer": block_proposer[:30] + "..." if block_proposer else "None",
                 "failed_validations": {
                     "last_block_hash": not last_block_hash_valid,
                     "transactions": not transactions_valid,
                     "signature": not signature_valid
                 },
-                "note": "Block rejected due to fundamental validation failures (not forger mismatch)"
+                "note": "Block rejected due to fundamental validation failures (not block proposer mismatch)"
             })
 
     def request_chain(self):
@@ -665,28 +665,28 @@ class Node:
                     self.transaction_pool.remove_from_pool(block.transactions)
             self.blockchain = local_blockchain_copy
 
-    def forge(self):
-        # Check if we should forge (quantum consensus selection)
-        forger = self.blockchain.next_forger()
+    def propose_block(self):
+        # Check if we should propose a block (quantum consensus selection)
+        block_proposer = self.blockchain.next_block_proposer()
         my_public_key = self.wallet.public_key_string()
         
         logger.info({
-            "message": "Forging attempt",
-            "selected_forger": forger[:50] + "..." if forger else "None",
+            "message": "Block proposal attempt",
+            "selected_block_proposer": block_proposer[:50] + "..." if block_proposer else "None",
             "my_public_key": my_public_key[:50] + "...",
-            "am_i_forger": forger == my_public_key,
+            "am_i_block_proposer": block_proposer == my_public_key,
             "transactions_in_pool": len(self.transaction_pool.transactions),
             "current_blockchain_length": len(self.blockchain.blocks)
         })
         
-        if forger == my_public_key:
+        if block_proposer == my_public_key:
             try:
                 # CRITICAL: Check if a block was already received for this round
-                # This prevents race conditions where multiple nodes try to forge simultaneously
+                # This prevents race conditions where multiple nodes try to propose blocks simultaneously
                 expected_block_count = len(self.blockchain.blocks)
                 
                 logger.info({
-                    "message": "I am selected as forger, proceeding with block creation",
+                    "message": "I am selected as block proposer, proceeding with block creation",
                     "expected_block_count": expected_block_count,
                     "current_time": time.time(),
                     "transactions_available": len(self.transaction_pool.transactions)
@@ -696,7 +696,7 @@ class Node:
                 max_block_size = self.blockchain.get_max_block_size()
                 transactions_for_block = self.transaction_pool.get_transactions_for_block(max_block_size)
                 
-                # Allow forging with any number of transactions (including zero)
+                # Allow block proposal with any number of transactions (including zero)
                 # Every 10 seconds, create a block regardless of transaction count
                 logger.info({
                     "message": "Creating block for 10-second interval",
@@ -705,8 +705,8 @@ class Node:
                     "max_block_size": max_block_size
                 })
                 
-                # Update forge time before creating block
-                self.transaction_pool.update_last_forge_time()
+                # Update last block creation time before creating block
+                self.transaction_pool.update_last_forge_time()  # Method name kept for compatibility
                 
                 block = self.blockchain.create_block(
                     transactions_for_block, self.wallet
@@ -720,13 +720,13 @@ class Node:
                         "actual_block_count": block.block_count,
                         "current_blockchain_length": len(self.blockchain.blocks)
                     })
-                    return  # Abort forging, another node was faster
+                    return  # Abort block proposal, another node was faster
                 
                 logger.info({
-                    "message": "Block forged successfully",
+                    "message": "Block proposed successfully",
                     "block_number": block.block_count,
                     "transactions_included": len(block.transactions),
-                    "forger": my_public_key[:20] + "...",
+                    "block_proposer": my_public_key[:20] + "...",
                     "block_timestamp": block.timestamp,
                     "block_hash": BlockchainUtils.hash(block.payload()).hex()[:16] + "...",
                     "remaining_in_pool": len(self.transaction_pool.transactions) - len(block.transactions)
@@ -736,8 +736,8 @@ class Node:
                 self.transaction_pool.remove_from_pool(block.transactions)
                 
                 # Mark our own block as seen to prevent rebroadcast loops
-                forged_block_hash = BlockchainUtils.hash(block.payload()).hex()
-                self.seen_blocks.add(forged_block_hash)
+                proposed_block_hash = BlockchainUtils.hash(block.payload()).hex()
+                self.seen_blocks.add(proposed_block_hash)
                 
                 # Broadcast the new block to all peers
                 message = Message(self.p2p.socket_connector, "BLOCK", block)
@@ -755,16 +755,16 @@ class Node:
                 
             except Exception as e:
                 logger.error({
-                    "message": "Block forging failed",
+                    "message": "Block proposal failed",
                     "error": str(e),
-                    "forger": my_public_key[:20] + "..."
+                    "block_proposer": my_public_key[:20] + "..."
                 })
                 # Update quantum consensus with failed proposal
                 self.blockchain.quantum_consensus.record_proposal_result(my_public_key, False)
                 
         else:
             logger.info({
-                "message": "Not selected as forger",
-                "selected_forger": forger[:20] + "..." if forger else "None",
+                "message": "Not selected as block proposer",
+                "selected_block_proposer": block_proposer[:20] + "..." if block_proposer else "None",
                 "my_key": my_public_key[:20] + "..."
             })

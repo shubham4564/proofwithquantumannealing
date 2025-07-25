@@ -5,7 +5,7 @@ class TransactionPool:
     def __init__(self):
         self.transactions = []
         self.last_forge_time = time.time()  # Initialize to current time
-        self.forge_interval = 30.0  # Extended to 30-second forging interval for CPU optimization
+        self.forge_interval = 30.0  # Extended to 30-second block proposal interval for CPU optimization
         self.max_block_size_bytes = 10 * 1024 * 1024  # 10 MB block size limit
         
         # Block size considerations
@@ -31,16 +31,16 @@ class TransactionPool:
                 new_pool_transactions.append(pool_transaction)
         self.transactions = new_pool_transactions
 
-    def forging_required(self):
+    def forging_required(self):  # Method name kept for compatibility
         """
-        Determine if forging is required based on:
-        1. Fixed 10-second interval - forging occurs every 10 seconds regardless of transaction count
+        Determine if block proposal is required based on:
+        1. Fixed 10-second interval - block proposal occurs every 10 seconds regardless of transaction count
         2. No minimum transaction requirements - any number of transactions can be included
         """
         current_time = time.time()
         time_since_last_forge = current_time - self.last_forge_time
         
-        # Forge every 10 seconds regardless of transaction count
+        # Propose block every 10 seconds regardless of transaction count
         if time_since_last_forge >= self.forge_interval:
             return True
             
@@ -130,17 +130,17 @@ class TransactionPool:
         block_overhead = 200  # bytes for block headers and metadata
         return (estimated_pool_size + block_overhead) <= max_block_size_bytes
     
-    def update_last_forge_time(self):
-        """Update the last forge time to current time"""
+    def update_last_forge_time(self):  # Method name kept for compatibility
+        """Update the last block proposal time to current time"""
         self.last_forge_time = time.time()
-    
-    def get_time_since_last_forge(self):
-        """Get the time elapsed since the last forge"""
+
+    def get_time_since_last_forge(self):  # Method name kept for compatibility
+        """Get the time elapsed since the last block proposal"""
         return time.time() - self.last_forge_time
-    
-    def get_time_until_next_forge(self):
-        """Get the time remaining until the next 10-second forge interval"""
+
+    def get_time_until_next_forge(self):  # Method name kept for compatibility
+        """Get the time remaining until the next 10-second block proposal interval"""
         time_since_last = self.get_time_since_last_forge()
         if time_since_last >= self.forge_interval:
-            return 0.0  # Ready to forge now
+            return 0.0  # Ready to propose block now
         return self.forge_interval - time_since_last

@@ -106,9 +106,9 @@ class Blockchain:
             logger.warning(f"Block {block.block_count} exceeds size limit: {BlockConfig.format_size(block_size)} > {BlockConfig.format_size(self.max_block_size_bytes)}")
             return False
         
-        # Check forger validity (quantum consensus)
-        if not self.forger_valid(block):
-            logger.warning(f"Block {block.block_count} has invalid forger")
+        # Check block proposer validity (quantum consensus)
+        if not self.block_proposer_valid(block):
+            logger.warning(f"Block {block.block_count} has invalid block proposer")
             return False
         
         # Check transactions validity
@@ -172,7 +172,7 @@ class Blockchain:
         amount = transaction.amount
         
         # Register all transaction participants in quantum consensus
-        # This ensures any active node can be selected as a forger
+        # This ensures any active node can be selected as a block proposer
         self.quantum_consensus.register_node(sender, sender)
         if receiver != sender:  # Avoid duplicate registration
             self.quantum_consensus.register_node(receiver, receiver)
@@ -186,14 +186,14 @@ class Blockchain:
             self.account_model.update_balance(sender, -amount)
             self.account_model.update_balance(receiver, amount)
 
-    def next_forger(self):
+    def next_block_proposer(self):
         last_block_hash = BlockchainUtils.hash(self.blocks[-1].payload()).hex()
         
         # Select representative node using quantum annealing consensus
-        next_forger = self.quantum_consensus.select_representative_node(last_block_hash)
-        return next_forger
+        next_block_proposer = self.quantum_consensus.select_representative_node(last_block_hash)
+        return next_block_proposer
 
-    def create_block(self, transactions_from_pool, forger_wallet):
+    def create_block(self, transactions_from_pool, proposer_wallet):
         """
         Create a new block with transactions that fit within the size limit.
         Automatically selects transactions to maximize block utilization while respecting size constraints.
@@ -208,7 +208,7 @@ class Blockchain:
         self.execute_transactions(selected_transactions)
         
         # Create the block
-        new_block = forger_wallet.create_block(
+        new_block = proposer_wallet.create_block(
             selected_transactions,
             BlockchainUtils.hash(self.blocks[-1].payload()).hex(),
             len(self.blocks),
@@ -243,7 +243,7 @@ class Blockchain:
         temp_block = Block(
             [],
             BlockchainUtils.hash(self.blocks[-1].payload()).hex(),
-            "temp_forger",
+            "temp_proposer",
             len(self.blocks)
         )
         
@@ -267,32 +267,32 @@ class Blockchain:
                     return True
         return False
 
-    def forger_valid(self, block, signature_pre_validated=False):
+    def block_proposer_valid(self, block, signature_pre_validated=False):
         """
-        Validate that the block forger has authority to forge using Leader-Based Consensus.
+        Validate that the block proposer has authority to propose blocks using Leader-Based Consensus.
         
-        In quantum annealing consensus, ONE representative node is selected to forge.
+        In quantum annealing consensus, ONE representative node is selected to propose blocks.
         All other nodes should accept that node's authority rather than re-calculating
         the selection (which fails due to different network views).
         
         This implements proper Leader-Based Consensus validation:
-        1. Verify the forger is a registered network participant
-        2. Verify the block signature matches the claimed forger (if not pre-validated)
+        1. Verify the block proposer is a registered network participant
+        2. Verify the block signature matches the claimed block proposer (if not pre-validated)
         3. Trust the quantum consensus selection (avoid re-calculation)
         
         Args:
             block: Block to validate
             signature_pre_validated: If True, skip signature verification (optimization)
         """
-        actual_forger = block.forger
+        actual_block_proposer = block.forger  # Note: block.forger field name kept for compatibility
         
-        # 1. Verify forger is a known network participant
-        if not self.is_known_network_participant(actual_forger):
+        # 1. Verify block proposer is a known network participant
+        if not self.is_known_network_participant(actual_block_proposer):
             logger.warning({
-                "message": "Unknown forger attempted to create block",
-                "forger": actual_forger[:30] + "..." if actual_forger else "None",
+                "message": "Unknown block proposer attempted to create block",
+                "block_proposer": actual_block_proposer[:30] + "..." if actual_block_proposer else "None",
                 "block_number": block.block_count,
-                "reason": "Forger not in known network participants"
+                "reason": "Block proposer not in known network participants"
             })
             return False
         
@@ -301,10 +301,10 @@ class Blockchain:
             block_payload = block.payload()
             signature = block.signature
             
-            if not Wallet.signature_valid(block_payload, signature, actual_forger):
+            if not Wallet.signature_valid(block_payload, signature, actual_block_proposer):
                 logger.warning({
-                    "message": "Invalid block signature from claimed forger",
-                    "forger": actual_forger[:30] + "..." if actual_forger else "None",
+                    "message": "Invalid block signature from claimed block proposer",
+                    "block_proposer": actual_block_proposer[:30] + "..." if actual_block_proposer else "None",
                     "block_number": block.block_count,
                     "reason": "Cryptographic signature verification failed"
                 })
@@ -314,8 +314,8 @@ class Blockchain:
         # In a properly functioning quantum consensus, the selected leader has authority
         # Re-calculating leads to inconsistencies due to different network views
         logger.info({
-            "message": "Block forger validated via Leader-Based Consensus",
-            "forger": actual_forger[:30] + "..." if actual_forger else "None",
+            "message": "Block proposer validated via Leader-Based Consensus",
+            "block_proposer": actual_block_proposer[:30] + "..." if actual_block_proposer else "None",
             "block_number": block.block_count,
             "validation_method": "leader_authority_trust",
             "note": "Trusting quantum consensus selection to avoid network view inconsistencies"
@@ -328,7 +328,7 @@ class Blockchain:
         Check if a public key belongs to a known network participant.
         Optimized with caching for better performance.
         
-        In Leader-Based Consensus, we validate that the forger is a legitimate
+        In Leader-Based Consensus, we validate that the block proposer is a legitimate
         network participant rather than re-calculating quantum selection.
         """
         if not public_key:
@@ -352,7 +352,7 @@ class Blockchain:
             return True
         
         # For development: accept any valid RSA public key format
-        # TODO: In production, maintain strict whitelist of authorized forgers
+        # TODO: In production, maintain strict whitelist of authorized block proposers
         if public_key.startswith("-----BEGIN PUBLIC KEY-----"):
             logger.info({
                 "message": "Accepting public key as network participant",
