@@ -2,6 +2,7 @@ import logging
 
 from blockchain.block import Block
 from blockchain.quantum_consensus.quantum_annealing_consensus import QuantumAnnealingConsensus
+from blockchain.consensus.leader_schedule import LeaderSchedule
 from blockchain.transaction.account_model import AccountModel
 from blockchain.transaction.wallet import Wallet
 from blockchain.utils.helpers import BlockchainUtils
@@ -10,25 +11,45 @@ from blockchain.config.block_config import BlockConfig
 
 
 class Blockchain:
-    def __init__(self, max_block_size=None):
-        self.blocks = [Block.genesis()]
+    def __init__(self, genesis_public_key=None):
+        """Initialize blockchain with genesis block"""
+        self.blocks = []
         self.account_model = AccountModel()
-        self.quantum_consensus = QuantumAnnealingConsensus()  # Quantum annealing consensus mechanism
         
-        # Performance optimizations
-        self._known_participants_cache = set()  # Cache for known network participants
-        self._genesis_key_cache = None  # Cache for genesis key
+        # Initialize leader schedule
+        self.leader_schedule = LeaderSchedule()
         
-        # Block size configuration - flexible and adjustable
-        self.max_block_size_bytes = max_block_size or BlockConfig.DEFAULT_MAX_BLOCK_SIZE
-        self.min_block_size_bytes = BlockConfig.MIN_BLOCK_SIZE
+        # Initialize block size limit (10MB default)
+        self.max_block_size_bytes = 10 * 1024 * 1024
         
-        # Validate initial block size
-        if not BlockConfig.validate_block_size(self.max_block_size_bytes):
-            raise ValueError(f"Invalid block size: {self.max_block_size_bytes}. Must be between {BlockConfig.MIN_BLOCK_SIZE} and {BlockConfig.MAX_BLOCK_SIZE} bytes")
+        # Initialize quantum consensus if genesis key is provided
+        if genesis_public_key:
+            self.genesis_public_key = genesis_public_key
+            self.quantum_consensus = QuantumAnnealingConsensus()
+        else:
+            self.genesis_public_key = None
+            self.quantum_consensus = None
         
-        logger.info(f"Blockchain initialized with max block size: {BlockConfig.format_size(self.max_block_size_bytes)}")
+        self.create_genesis_block()
+    
+    def create_genesis_block(self):
+        """Create the initial genesis block"""
+        from blockchain.transaction.wallet import Wallet
         
+        if len(self.blocks) == 0:
+            # Create genesis wallet for initial block
+            genesis_wallet = Wallet()
+            if self.genesis_public_key:
+                # Use provided genesis key if available
+                forger = self.genesis_public_key
+            else:
+                forger = genesis_wallet.public_key_string()
+            
+            # Create genesis block with empty transactions
+            genesis_block = Block([], forger, 0, "")
+            self.blocks.append(genesis_block)
+            logger.info(f"Genesis block created with proposer: {forger[:20]}...")
+    
     def set_max_block_size(self, size_bytes):
         """
         Set the maximum block size in bytes.
@@ -83,7 +104,8 @@ class Blockchain:
 
     def block_valid(self, block):
         """
-        Validate a block against all blockchain rules including size limits.
+        Validate a block against blockchain rules.
+        Block proposers can include all valid transactions they receive during their slot.
         
         Args:
             block: Block to validate
@@ -98,12 +120,6 @@ class Blockchain:
         
         if not self.last_block_hash_valid(block):
             logger.warning(f"Block {block.block_count} has invalid last block hash")
-            return False
-        
-        # Check block size
-        if not block.is_within_size_limit(self.max_block_size_bytes):
-            block_size = block.calculate_size()
-            logger.warning(f"Block {block.block_count} exceeds size limit: {BlockConfig.format_size(block_size)} > {BlockConfig.format_size(self.max_block_size_bytes)}")
             return False
         
         # Check block proposer validity (quantum consensus)
@@ -133,18 +149,36 @@ class Blockchain:
 
     def get_covered_transaction_set(self, transactions):
         """
-        Optimized transaction coverage validation with early exit for failed transactions.
-        Returns covered transactions and stops processing on first invalid transaction.
+        Validate transactions by checking signatures and sufficient balance.
+        Returns only valid transactions (invalid ones are excluded, not causing full rejection).
         """
+        from blockchain.transaction.wallet import Wallet
+        
         covered_transactions = []
         for transaction in transactions:
+            # 1. Verify transaction signature first
+            try:
+                data = transaction.payload()
+                signature = transaction.signature
+                signer_public_key = transaction.sender_public_key
+                signature_valid = Wallet.signature_valid(data, signature, signer_public_key)
+                
+                if not signature_valid:
+                    logger.warning(f"Transaction signature invalid: {transaction.sender_public_key[:20]}...")
+                    continue  # Skip invalid signature, don't include in block
+                    
+            except Exception as e:
+                logger.warning(f"Transaction signature verification failed: {e}")
+                continue  # Skip transaction with signature issues
+            
+            # 2. Check if transaction has sufficient balance/coverage
             if self.transaction_covered(transaction):
                 covered_transactions.append(transaction)
             else:
-                logging.error(f"Transaction not covered by sender: {transaction.sender_public_key[:20]}...")
-                # Early exit optimization: if any transaction is invalid, 
-                # the entire block is invalid
-                return []
+                logger.warning(f"Transaction not covered by sender: {transaction.sender_public_key[:20]}...")
+                # Continue processing other transactions (don't early exit)
+                
+        logger.info(f"Validated {len(covered_transactions)}/{len(transactions)} transactions for block")
         return covered_transactions
 
     def transaction_covered(self, transaction):
@@ -171,11 +205,12 @@ class Blockchain:
         receiver = transaction.receiver_public_key
         amount = transaction.amount
         
-        # Register all transaction participants in quantum consensus
+        # Register all transaction participants in quantum consensus (if available)
         # This ensures any active node can be selected as a block proposer
-        self.quantum_consensus.register_node(sender, sender)
-        if receiver != sender:  # Avoid duplicate registration
-            self.quantum_consensus.register_node(receiver, receiver)
+        if self.quantum_consensus:
+            self.quantum_consensus.register_node(sender, sender)
+            if receiver != sender:  # Avoid duplicate registration
+                self.quantum_consensus.register_node(receiver, receiver)
         
         if transaction.type == "EXCHANGE":
             # EXCHANGE transactions for initial funding
@@ -187,22 +222,34 @@ class Blockchain:
             self.account_model.update_balance(receiver, amount)
 
     def next_block_proposer(self):
-        last_block_hash = BlockchainUtils.hash(self.blocks[-1].payload()).hex()
+        """Get the next block proposer using leader schedule"""
+        current_leader = self.leader_schedule.get_current_leader()
+        if current_leader:
+            return current_leader
         
-        # Select representative node using quantum annealing consensus
-        next_block_proposer = self.quantum_consensus.select_representative_node(last_block_hash)
-        return next_block_proposer
+        # Fallback to quantum consensus if available and leader schedule fails
+        if self.quantum_consensus:
+            last_block_hash = BlockchainUtils.hash(self.blocks[-1].payload()).hex()
+            next_block_proposer = self.quantum_consensus.select_representative_node(last_block_hash)
+            return next_block_proposer
+        
+        # If no quantum consensus available, return genesis public key or None
+        return self.genesis_public_key
+    
+    def get_upcoming_leaders(self, count=5):
+        """Get upcoming block proposers for Gulf Stream forwarding"""
+        return self.leader_schedule.get_upcoming_leaders(count)
 
     def create_block(self, transactions_from_pool, proposer_wallet):
         """
-        Create a new block with transactions that fit within the size limit.
-        Automatically selects transactions to maximize block utilization while respecting size constraints.
+        Create a new block with all valid transactions received during the slot.
+        Block proposer includes all transactions with valid signatures and recent blockhash.
         """
-        # Get transactions that are covered (have sufficient balance)
+        # Get transactions that are covered (have sufficient balance and valid signatures)
         covered_transactions = self.get_covered_transaction_set(transactions_from_pool)
         
-        # Select transactions that fit within block size limit
-        selected_transactions = self.select_transactions_for_block_size(covered_transactions)
+        # Include ALL valid transactions (no size limit)
+        selected_transactions = covered_transactions
         
         # Execute the selected transactions
         self.execute_transactions(selected_transactions)
@@ -214,51 +261,26 @@ class Blockchain:
             len(self.blocks),
         )
         
-        # Verify the block is within size limits
-        if not new_block.is_within_size_limit(self.max_block_size_bytes):
-            logger.warning(f"Created block exceeds size limit: {new_block.calculate_size()} > {self.max_block_size_bytes} bytes")
-        else:
-            logger.info(f"Block created with size: {new_block.calculate_size()}/{self.max_block_size_bytes} bytes ({len(selected_transactions)} transactions)")
+        # Log block creation without size constraints
+        block_size = new_block.calculate_size() if hasattr(new_block, 'calculate_size') else 0
+        logger.info(f"Block created with {len(selected_transactions)} transactions (size: {block_size} bytes, no size limit)")
         
         self.blocks.append(new_block)
         return new_block
     
     def select_transactions_for_block_size(self, transactions):
         """
-        Select transactions that fit within the block size limit.
-        Uses a greedy approach to maximize block utilization.
+        Return all transactions since there are no block size limits.
+        Block proposers include all valid transactions received during their slot.
         
         Args:
-            transactions: List of transactions to select from
+            transactions: List of transactions to include
             
         Returns:
-            List of selected transactions that fit within size limit
+            All transactions (no size filtering)
         """
-        if not transactions:
-            return []
-        
-        selected_transactions = []
-        
-        # Create temporary block to test size
-        temp_block = Block(
-            [],
-            BlockchainUtils.hash(self.blocks[-1].payload()).hex(),
-            "temp_proposer",
-            len(self.blocks)
-        )
-        
-        # Add transactions one by one until size limit is reached
-        for transaction in transactions:
-            temp_block.transactions = selected_transactions + [transaction]
-            
-            if temp_block.calculate_size() <= self.max_block_size_bytes:
-                selected_transactions.append(transaction)
-            else:
-                # This transaction would exceed the limit, so we're done
-                break
-        
-        logger.debug(f"Selected {len(selected_transactions)}/{len(transactions)} transactions for block (size limit: {self.max_block_size_bytes} bytes)")
-        return selected_transactions
+        logger.debug(f"Including all {len(transactions)} transactions in block (no size limit)")
+        return transactions
 
     def transaction_exists(self, transaction):
         for block in self.blocks:

@@ -1,0 +1,180 @@
+import time
+import hashlib
+from typing import List, Dict, Optional
+from blockchain.utils.logger import logger
+
+
+class LeaderSchedule:
+    """
+    Solana-style leader schedule that pre-determines block proposers for extended periods.
+    Similar to Solana's epoch system but adapted for quantum consensus.
+    """
+    
+    def __init__(self, epoch_duration_hours=24):
+        self.epoch_duration_seconds = epoch_duration_hours * 3600  # 24 hours default
+        self.slot_duration_seconds = 30  # 30 seconds per slot (block proposal interval)
+        self.slots_per_epoch = self.epoch_duration_seconds // self.slot_duration_seconds
+        
+        # Current epoch data
+        self.current_epoch = 0
+        self.epoch_start_time = time.time()
+        self.current_schedule = {}  # slot_number -> leader_public_key
+        self.next_schedule = {}     # Pre-computed next epoch schedule
+        
+        logger.info({
+            "message": "Leader schedule initialized",
+            "epoch_duration_hours": epoch_duration_hours,
+            "slot_duration_seconds": self.slot_duration_seconds,
+            "slots_per_epoch": self.slots_per_epoch
+        })
+    
+    def generate_epoch_schedule(self, epoch_number: int, quantum_consensus, seed_hash: str) -> Dict[int, str]:
+        """
+        Generate leader schedule for an entire epoch using quantum consensus.
+        Similar to Solana's leader selection but using our quantum annealing.
+        """
+        schedule = {}
+        
+        # Use epoch number and seed to create deterministic but unpredictable schedule
+        epoch_seed = f"{epoch_number}_{seed_hash}"
+        
+        logger.info({
+            "message": "Generating epoch leader schedule",
+            "epoch": epoch_number,
+            "slots_to_schedule": self.slots_per_epoch,
+            "seed": epoch_seed[:32] + "..."
+        })
+        
+        # Get all registered nodes for this epoch
+        registered_nodes = list(quantum_consensus.nodes.keys()) if quantum_consensus.nodes else []
+        
+        if not registered_nodes:
+            logger.warning("No registered nodes for leader schedule generation")
+            return schedule
+        
+        # Generate schedule for each slot in the epoch
+        for slot in range(self.slots_per_epoch):
+            # Create unique seed for each slot
+            slot_seed = hashlib.sha256(f"{epoch_seed}_{slot}".encode()).hexdigest()
+            
+            # Use quantum consensus to select leader for this specific slot
+            selected_leader = quantum_consensus.select_representative_node(slot_seed)
+            
+            if selected_leader:
+                schedule[slot] = selected_leader
+            else:
+                # Fallback to round-robin if quantum selection fails
+                schedule[slot] = registered_nodes[slot % len(registered_nodes)]
+        
+        logger.info({
+            "message": "Epoch leader schedule generated",
+            "epoch": epoch_number,
+            "total_slots": len(schedule),
+            "unique_leaders": len(set(schedule.values())),
+            "sample_leaders": [schedule[i][:20] + "..." for i in range(min(5, len(schedule)))]
+        })
+        
+        return schedule
+    
+    def get_current_slot(self) -> int:
+        """Get the current slot number within the current epoch"""
+        current_time = time.time()
+        time_in_epoch = current_time - self.epoch_start_time
+        return int(time_in_epoch // self.slot_duration_seconds)
+    
+    def get_current_leader(self) -> Optional[str]:
+        """Get the leader for the current slot"""
+        current_slot = self.get_current_slot()
+        return self.current_schedule.get(current_slot)
+    
+    def get_upcoming_leaders(self, num_slots: int = 5) -> List[tuple]:
+        """
+        Get upcoming leaders for the next N slots.
+        Returns list of (slot_number, leader_public_key, absolute_time) tuples.
+        """
+        current_slot = self.get_current_slot()
+        upcoming = []
+        
+        for i in range(1, num_slots + 1):
+            future_slot = current_slot + i
+            future_time = self.epoch_start_time + (future_slot * self.slot_duration_seconds)
+            
+            # Check if we're still in current epoch
+            if future_slot < self.slots_per_epoch:
+                leader = self.current_schedule.get(future_slot)
+            else:
+                # We've moved to next epoch
+                next_epoch_slot = future_slot - self.slots_per_epoch
+                leader = self.next_schedule.get(next_epoch_slot)
+            
+            if leader:
+                upcoming.append((future_slot, leader, future_time))
+        
+        return upcoming
+    
+    def is_epoch_transition_needed(self) -> bool:
+        """Check if we need to transition to the next epoch"""
+        current_slot = self.get_current_slot()
+        return current_slot >= self.slots_per_epoch
+    
+    def transition_to_next_epoch(self):
+        """Transition to the next epoch and update schedules"""
+        self.current_epoch += 1
+        self.epoch_start_time = time.time()
+        self.current_schedule = self.next_schedule.copy()
+        self.next_schedule = {}
+        
+        logger.info({
+            "message": "Transitioned to next epoch",
+            "new_epoch": self.current_epoch,
+            "epoch_start_time": self.epoch_start_time,
+            "current_schedule_size": len(self.current_schedule)
+        })
+    
+    def update_schedule(self, quantum_consensus):
+        """
+        Update the leader schedule, handling epoch transitions.
+        Should be called periodically by the blockchain.
+        """
+        # Check if we need to transition epochs
+        if self.is_epoch_transition_needed():
+            self.transition_to_next_epoch()
+        
+        # Generate next epoch schedule if we don't have it
+        if not self.next_schedule:
+            next_epoch = self.current_epoch + 1
+            # Use current blockchain state as seed for next epoch
+            seed_hash = hashlib.sha256(f"epoch_{next_epoch}_{time.time()}".encode()).hexdigest()
+            self.next_schedule = self.generate_epoch_schedule(next_epoch, quantum_consensus, seed_hash)
+        
+        # Generate current epoch schedule if we don't have it (initialization)
+        if not self.current_schedule:
+            seed_hash = hashlib.sha256(f"epoch_{self.current_epoch}_{self.epoch_start_time}".encode()).hexdigest()
+            self.current_schedule = self.generate_epoch_schedule(self.current_epoch, quantum_consensus, seed_hash)
+    
+    def get_schedule_info(self) -> Dict:
+        """Get detailed information about current schedule state"""
+        current_slot = self.get_current_slot()
+        current_leader = self.get_current_leader()
+        upcoming = self.get_upcoming_leaders(3)
+        
+        return {
+            "current_epoch": self.current_epoch,
+            "current_slot": current_slot,
+            "slots_per_epoch": self.slots_per_epoch,
+            "current_leader": current_leader[:30] + "..." if current_leader else None,
+            "upcoming_leaders": [
+                {
+                    "slot": slot,
+                    "leader": leader[:20] + "...",
+                    "time_seconds": abs_time - time.time()
+                }
+                for slot, leader, abs_time in upcoming
+            ],
+            "epoch_progress": f"{current_slot}/{self.slots_per_epoch}",
+            "schedule_health": {
+                "current_schedule_size": len(self.current_schedule),
+                "next_schedule_ready": len(self.next_schedule) > 0,
+                "epoch_transition_needed": self.is_epoch_transition_needed()
+            }
+        }

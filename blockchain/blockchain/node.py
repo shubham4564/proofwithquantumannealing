@@ -4,6 +4,8 @@ from threading import Timer
 
 from api.main import NodeAPI
 from blockchain.blockchain import Blockchain
+from blockchain.consensus.gulf_stream import GulfStreamProcessor
+from blockchain.slot_producer import SlotBasedBlockProducer
 from blockchain.p2p.message import Message, MessageType, InventoryItem, InventoryMessage, GetDataMessage
 from blockchain.p2p.socket_communication import SocketCommunication
 from blockchain.p2p.transaction_mempool import TransactionMempool
@@ -29,6 +31,12 @@ class Node:
         if key is not None:
             self.wallet.from_key(key)
         self.blockchain = Blockchain()
+        
+        # Initialize Gulf Stream for transaction forwarding
+        self.gulf_stream = GulfStreamProcessor(self.blockchain.leader_schedule)
+        
+        # Initialize slot-based block production
+        self.slot_producer = SlotBasedBlockProducer(self)
         
         # Track seen blocks to prevent rebroadcast loops
         self.seen_blocks = set()
@@ -79,6 +87,20 @@ class Node:
             except Exception as e:
                 logger.error({"message": "Heartbeat error", "error": str(e)})
                 time.sleep(10)  # Increased error recovery time
+
+    def start_slot_production(self):
+        """Start Solana-style slot-based block production"""
+        self.slot_producer.start_slot_production()
+        logger.info("Slot-based block production enabled")
+    
+    def stop_slot_production(self):
+        """Stop slot-based block production"""
+        self.slot_producer.stop_slot_production()
+        logger.info("Slot-based block production disabled")
+    
+    def get_slot_info(self):
+        """Get current slot timing and production information"""
+        return self.slot_producer.get_slot_info()
 
     def start_node_api(self, api_port):
         self.api = NodeAPI()
@@ -134,17 +156,18 @@ class Node:
             })
             return
 
-        # 2. Mempool Storage: Add to memory pool
-        added_to_mempool = self.mempool.add_transaction(transaction, source_peer)
+        # 2. Gulf Stream: Forward to leaders instead of mempool
+        upcoming_leaders = self.blockchain.get_upcoming_leaders(5)
+        forwarded = self.gulf_stream.forward_transaction(transaction, upcoming_leaders)
         
         # Also add to legacy pool for compatibility
         self.transaction_pool.add_transaction(transaction)
         
-        if added_to_mempool:
+        if forwarded:
             logger.info({
-                "message": "Transaction verified and stored in mempool",
+                "message": "Transaction forwarded via Gulf Stream",
                 "tx_hash": tx_hash[:16] + "...",
-                "mempool_size": len(self.mempool.transactions),
+                "leaders_forwarded": len(upcoming_leaders),
                 "legacy_pool_size": len(self.transaction_pool.transactions),
                 "transaction_type": transaction.type,
                 "sender": transaction.sender_public_key[:20] + "...",
@@ -152,13 +175,30 @@ class Node:
                 "source": "API" if from_api else f"P2P({source_peer[:10]}...)" if source_peer else "P2P"
             })
             
-            # 3. Gossip Protocol: Propagate using INV/GETDATA pattern
+            # 3. Gulf Stream Protocol: Forward to current and upcoming leaders
             if from_api:
-                # For API transactions, announce to all peers immediately
-                self._announce_transaction_to_peers(tx_hash)
+                # For API transactions, forward immediately via Gulf Stream
+                self._forward_transaction_to_leaders(transaction, upcoming_leaders)
             else:
-                # For P2P transactions, use gossip protocol with selective propagation
-                self._gossip_transaction_to_peers(tx_hash, exclude_peer=source_peer)
+                # For P2P transactions, update Gulf Stream forwarding state
+                self.gulf_stream.update_forwarding_state(transaction)
+        else:
+            # Fallback to traditional mempool if Gulf Stream fails
+            added_to_mempool = self.mempool.add_transaction(transaction, source_peer)
+            
+            if added_to_mempool:
+                logger.info({
+                    "message": "Transaction stored in mempool (Gulf Stream fallback)",
+                    "tx_hash": tx_hash[:16] + "...",
+                    "mempool_size": len(self.mempool.transactions),
+                    "source": "API" if from_api else f"P2P({source_peer[:10]}...)" if source_peer else "P2P"
+                })
+                
+                # Use traditional gossip as fallback
+                if from_api:
+                    self._announce_transaction_to_peers(tx_hash)
+                else:
+                    self._gossip_transaction_to_peers(tx_hash, exclude_peer=source_peer)
 
         # Check if block proposal is needed
         block_proposal_required = self.transaction_pool.forging_required()  # Method name kept for compatibility
@@ -504,6 +544,45 @@ class Node:
             "excluded_peer": exclude_peer[:20] + "..." if exclude_peer else None
         })
 
+    def _forward_transaction_to_leaders(self, transaction, leaders):
+        """
+        Forward transaction directly to current and upcoming leaders using Gulf Stream protocol.
+        """
+        if not self.p2p or not hasattr(self.p2p, 'all_nodes') or not self.p2p.all_nodes:
+            logger.warning("No P2P connection available for Gulf Stream forwarding")
+            return
+        
+        if not leaders:
+            logger.warning("No leaders available for Gulf Stream forwarding")
+            return
+        
+        # Create transaction message for direct forwarding
+        message = Message(self.p2p.socket_connector, MessageType.TRANSACTION, transaction.to_dict())
+        encoded_message = BlockchainUtils.encode(message)
+        
+        forwarded_count = 0
+        
+        for leader_public_key in leaders:
+            # Find peer that matches this leader
+            leader_peer = None
+            for peer in self.p2p.all_nodes:
+                # In a real implementation, you'd have a mapping of public keys to peers
+                # For now, we'll forward to all peers as we don't have the peer-to-public-key mapping
+                try:
+                    self.p2p.send_to_node(peer, encoded_message)
+                    forwarded_count += 1
+                    break  # Forward to first available peer for each leader
+                except Exception as e:
+                    logger.debug(f"Failed to forward to peer {peer.host}:{peer.port}: {e}")
+        
+        logger.info({
+            "message": "Transaction forwarded via Gulf Stream",
+            "leaders_count": len(leaders),
+            "forwarded_to_peers": forwarded_count,
+            "tx_type": transaction.type,
+            "sender": transaction.sender_public_key[:20] + "..."
+        })
+
     def handle_block(self, block):
         block_proposer = block.forger  # Note: block.forger field name kept for compatibility
         block_hash = block.payload()
@@ -692,17 +771,35 @@ class Node:
                     "transactions_available": len(self.transaction_pool.transactions)
                 })
                 
-                # Get transactions for this block (respecting 10 MB size limit)
-                max_block_size = self.blockchain.get_max_block_size()
-                transactions_for_block = self.transaction_pool.get_transactions_for_block(max_block_size)
+                # Get transactions for this block using Gulf Stream (no size limits)
+                
+                # First try to get transactions from Gulf Stream
+                gulf_stream_transactions = self.gulf_stream.get_transactions_for_block()
+                
+                # Fallback to legacy transaction pool if Gulf Stream is empty
+                if gulf_stream_transactions:
+                    transactions_for_block = gulf_stream_transactions
+                    logger.info({
+                        "message": "Using Gulf Stream transactions for block",
+                        "gulf_stream_count": len(gulf_stream_transactions),
+                        "size_limit": "none"
+                    })
+                else:
+                    # Get all transactions from legacy pool (no size limit)
+                    transactions_for_block = self.transaction_pool.transactions
+                    logger.info({
+                        "message": "Using legacy pool transactions for block (Gulf Stream empty)",
+                        "legacy_pool_count": len(transactions_for_block),
+                        "size_limit": "none"
+                    })
                 
                 # Allow block proposal with any number of transactions (including zero)
-                # Every 10 seconds, create a block regardless of transaction count
+                # Every slot, create a block regardless of transaction count or size
                 logger.info({
-                    "message": "Creating block for 10-second interval",
+                    "message": "Creating block for slot interval",
                     "pool_size": len(self.transaction_pool.transactions),
                     "transactions_for_block": len(transactions_for_block),
-                    "max_block_size": max_block_size
+                    "size_limit": "none"
                 })
                 
                 # Update last block creation time before creating block
@@ -734,6 +831,7 @@ class Node:
                 
                 # Remove only the transactions that were included in the block
                 self.transaction_pool.remove_from_pool(block.transactions)
+                self.gulf_stream.remove_transactions(block.transactions)  # Clean up Gulf Stream too
                 
                 # Mark our own block as seen to prevent rebroadcast loops
                 proposed_block_hash = BlockchainUtils.hash(block.payload()).hex()
