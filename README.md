@@ -1,320 +1,454 @@
-# Quantum Annealing Consensus Blockchain
+# 🚀 Quantum-Enhanced Solana-Style Blockchain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-This is an advanced implementation of a blockchain that uses **Quantum Annealing** principles as its consensus mechanism. The project demonstrates how quantum-inspired optimization can improve fairness, security, and decentralization in blockchain networks through energy minimization approaches.
+A high-performance blockchain implementation featuring **Solana-style architecture** with quantum consensus, Proof of History (PoH), parallel execution (Sealevel), and efficient block propagation (Turbine).
 
-## 🌟 Features
+## � **Key Features**
 
-- **Quantum Annealing-based Consensus** algorithm
-- Energy minimization approach for validator selection  
-- Dynamic parameter adjustment based on network conditions
-- P2P communication with node discovery
-- RESTful API with FastAPI
-- Multi-node network support
-- Comprehensive transaction testing framework
-- Real-time network monitoring and analysis
-- Docker support for easy deployment
+### **🔮 Quantum Consensus**
+- **Quantum annealing-based leader selection** for deterministic consensus
+- **2-second slot intervals** with continuous leader scheduling
+- **Byzantine fault tolerance** with quantum-enhanced security
 
-⚠️ **Note**: This is a research and demonstration project. Not intended for production use.
+### **⚡ Solana-Style Architecture**
+- **🌊 Gulf Stream**: Direct transaction forwarding to upcoming leaders
+- **⏰ Proof of History**: 5,000 ticks/second cryptographic clock for verifiable ordering
+- **🔄 Sealevel**: Parallel transaction execution with 8-thread processing
+- **🌪️ Turbine**: Efficient block propagation with erasure coding and shred distribution
 
+### **📊 Enhanced Logging & Monitoring**
+- **Component-specific logs**: Separate files for PoH, Sealevel, Turbine, consensus, transactions
+- **Performance metrics**: Real-time TPS monitoring and latency analysis
+- **Real-time monitoring**: Live log tailing and component analysis
+- **JSON-structured logs**: Machine-readable for automated analysis
 
-## 📋 Prerequisites
+## �️ **Prerequisites**
 
-### System Requirements
-- **Python**: 3.12 or higher
-- **Operating System**: Windows, macOS, or Linux
-- **Memory**: Minimum 4GB RAM (8GB recommended for multiple nodes)
-- **Storage**: At least 1GB free space
+### **System Requirements**
+- **Python 3.8+** (3.9+ recommended)
+- **4GB+ RAM** (8GB recommended for multi-node setups)
+- **Linux/macOS** (Windows with WSL2)
 
-### Required Software
-- Git
-- Python 3.12+
-- pip (Python package manager)
+### **Python Dependencies**
+```bash
+# Core blockchain
+cryptography>=3.4.8
+ecdsa>=0.17.0
+pycryptodome>=3.15.0
 
-## 🚀 Installation
+# Networking & API
+fastapi>=0.68.0
+uvicorn>=0.15.0
+requests>=2.26.0
 
-### 1. Clone the Repository
+# Quantum consensus (optional)
+dwave-ocean-sdk>=4.0.0
+dimod>=0.10.0
+
+# Logging & monitoring
+python-json-logger>=2.0.0
+```
+
+## � **Installation**
+
+### **1. Clone Repository**
 ```bash
 git clone https://github.com/shubham4564/proofwithquantumannealing.git
-cd proofwithquantumannealing
+cd proofwithquantumannealing/blockchain
 ```
 
-### 2. Set up Python Virtual Environment
-
-#### On Windows (PowerShell):
-```powershell
-python -m venv .winvenv
-.\.winvenv\Scripts\Activate.ps1
-```
-
-#### On macOS/Linux:
+### **2. Install Dependencies**
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+# Using pip (recommended)
+pip install -r requirements/requirements.txt
+
+# Or using conda
+conda create -n blockchain python=3.9
+conda activate blockchain
+pip install -r requirements/requirements.txt
 ```
 
-### 3. Install Dependencies
+### **3. Generate Cryptographic Keys**
 ```bash
-cd blockchain
-pip install -r req.txt
+# Generate keys for nodes (genesis + node keys)
+chmod +x generate_keys.sh
+./generate_keys.sh
+
+# Verify key generation
+ls keys/
+# Should show: genesis_private_key.pem, genesis_public_key.pem, node*_private_key.pem, etc.
 ```
 
-## 🔧 Configuration
+## 🚀 **Quick Start**
 
-### Generate Cryptographic Keys
-Before starting nodes, generate the necessary cryptographic keys:
-
+### **1. Start Blockchain Network**
 ```bash
-# Navigate to blockchain directory
-cd blockchain
+# Start 5 nodes (ports 10000-10004 for P2P, 11000-11004 for API)
+./start_nodes.sh
 
-# Generate keys (if not already present)
-bash generate_keys.sh
+# Expected output:
+# 🚀 Starting 5 blockchain nodes...
+# ✅ All 5 nodes started!
+# 📡 Node ports: 10000-10004
+# 🌐 API ports: 11000-11004
+# 📝 Enhanced Logs: Use 'python monitor_logs.py summary' to view all logs
 ```
 
-This creates keys in the `keys/` directory:
-- `genesis_private_key.pem` - Genesis node key
-- `node[1-10]_private_key.pem` - Individual node keys
-
-## 🏃‍♂️ Running the Blockchain
-
-### Quick Start - Single Node
-```bash
-cd blockchain
-python run_node.py --ip localhost --node_port 10000 --api_port 11000 --key_file keys/genesis_private_key.pem
-```
-
-### Multi-Node Network
-
-#### Option 1: Using PowerShell Script (Windows)
-```powershell
-cd blockchain
-.\start_nodes_clean.ps1 [NUMBER_OF_NODES]
-
-# Examples:
-.\start_nodes_clean.ps1      # Start 10 nodes (default)
-.\start_nodes_clean.ps1 5    # Start 5 nodes
-```
-
-#### Option 2: Using Bash Script (Linux/macOS/WSL)
-```bash
-cd blockchain
-./start_nodes.sh [NUMBER_OF_NODES]
-
-# Examples:
-./start_nodes.sh      # Start 10 nodes (default)  
-./start_nodes.sh 5    # Start 5 nodes
-```
-
-#### Option 3: Manual Node Startup
-```bash
-# Terminal 1 - Node 1 (Genesis)
-python run_node.py --ip localhost --node_port 10000 --api_port 11000 --key_file keys/genesis_private_key.pem
-
-# Terminal 2 - Node 2  
-python run_node.py --ip localhost --node_port 10001 --api_port 11001 --key_file keys/node2_private_key.pem
-
-# Terminal 3 - Node 3
-python run_node.py --ip localhost --node_port 10002 --api_port 11002 --key_file keys/node3_private_key.pem
-```
-
-### Network Ports
-- **Node Ports**: 10000-10009 (P2P communication)
-- **API Ports**: 11000-11009 (HTTP REST API)
-
-## 📊 Testing Transactions
-
-### Single Transaction Test
-```bash
-cd blockchain
-python test_transactions.py --count 1 --node_port 11000
-```
-
-### Multiple Transaction Test
-```bash
-# Send 10 transactions
-python test_transactions.py --count 10
-
-# Send 50 transactions with specific target node
-python test_transactions.py --count 50 --node_port 11001
-
-# Stress test with 100 transactions
-python test_transactions.py --count 100 --amount_range 1 100
-```
-
-### Advanced Transaction Testing
-```bash
-# Test with custom parameters
-python test_transactions.py \
-    --count 25 \
-    --node_port 11000 \
-    --amount_range 10 1000 \
-    --delay 0.5
-
-# Test different transaction types
-python test_transactions.py --count 10 --transaction_type TRANSFER
-```
-
-### Transaction Test Parameters
-- `--count`: Number of transactions to send (default: 10)
-- `--node_port`: Target node API port (default: 11000)
-- `--amount_range`: Min and max transaction amounts (default: 1 100)
-- `--delay`: Delay between transactions in seconds (default: 1.0)
-- `--transaction_type`: Transaction type (TRANSFER, STAKE, etc.)
-
-## 📈 Network Monitoring
-
-### Analyze Network Performance
-```bash
-cd blockchain
-
-# Basic network analysis
-python analyze_forgers.py
-
-# Real-time monitoring (30-second intervals)
-python analyze_forgers.py --watch 30
-
-# Generate detailed reports
-python analyze_forgers.py --detailed --export
-```
-
-### Check Node Status
+### **2. Verify Node Status**
 ```bash
 # Check if nodes are responding
-curl http://localhost:11000/api/v1/blockchain/
-curl http://localhost:11001/api/v1/blockchain/
-curl http://localhost:11002/api/v1/blockchain/
+curl http://localhost:11000/api/v1/blockchain/ | jq
+
+# Should return blockchain status with blocks array
 ```
 
-### Performance Testing
+### **3. Run Transaction Test**
 ```bash
-# Quick performance test
-python quick_performance_test.py
+# Simple transaction flow test
+python simple_blockchain_test.py
 
-# Comprehensive performance analysis
-python flexible_performance_test.py --nodes 5 --transactions 100
+# Comprehensive Solana-style flow test
+python test_solana_flow.py
 
-# Batch performance testing
-python batch_performance_test.py
+# Performance analysis test
+python test_comprehensive_performance.py
 ```
 
-## 🔍 API Endpoints
+## 📊 **Monitoring & Logging**
 
-### Blockchain Information
-- `GET /api/v1/blockchain/` - Get blockchain state
-
-### Quantum Consensus Metrics
-- `GET /api/v1/blockchain/quantum-metrics/` - Get quantum consensus data
-
-### Example API Calls
+### **📋 Log Overview**
 ```bash
-# Get blockchain info
-curl http://localhost:11000/api/v1/blockchain/
+# Show all available logs
+python monitor_logs.py summary
 
-# Get quantum metrics
-curl http://localhost:11000/api/v1/blockchain/quantum-metrics/
+# Output shows organized log structure:
+# 📁 consensus/     - PoH, Sealevel, Turbine, quantum consensus
+# 📁 transactions/ - Transaction processing logs
+# 📁 network/      - P2P, Gulf Stream, API logs
+# 📁 performance/  - Timing and throughput metrics
+# 📁 errors/       - Error aggregation
 ```
 
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-#### 1. Import Errors / Module Not Found
+### **🎯 Component-Specific Monitoring**
 ```bash
-# Ensure you're in the correct directory and virtual environment is activated
-cd blockchain
-pip install -r req.txt
+# Watch Proof of History in real-time
+python monitor_logs.py watch poh node_10000
+
+# Monitor transaction processing
+python monitor_logs.py watch transactions node_10000
+
+# Watch consensus decisions
+python monitor_logs.py watch consensus node_10000
+
+# Monitor parallel execution
+python monitor_logs.py watch sealevel node_10000
+
+# Watch block propagation
+python monitor_logs.py watch turbine node_10000
 ```
 
-#### 2. Port Already in Use
+### **📈 Performance Analysis**
 ```bash
+# Analyze performance metrics (last hour)
+python monitor_logs.py performance node_10000
+
+# Analyze last 4 hours
+python monitor_logs.py performance node_10000 --hours 4
+
+# View recent logs
+python monitor_logs.py tail performance node_10000 --lines 50
+```
+
+### **🚨 Error Monitoring**
+```bash
+# Watch for errors across all components
+python monitor_logs.py watch errors node_10000
+
+# View recent errors
+python monitor_logs.py tail errors node_10000
+```
+
+## 🧪 **Testing**
+
+### **1. Simple Transaction Test**
+Tests basic transaction submission and blockchain interaction:
+```bash
+python simple_blockchain_test.py
+
+# What it tests:
+# ✅ Node connectivity
+# ✅ Transaction creation and signing
+# ✅ API submission
+# ✅ Blockchain state changes
+# ✅ Block creation monitoring
+```
+
+### **2. Solana-Style Flow Test**
+Tests the complete Solana architecture pipeline:
+```bash
+python test_solana_flow.py
+
+# What it tests:
+# ✅ Gulf Stream transaction forwarding
+# ✅ PoH transaction sequencing
+# ✅ Sealevel parallel execution
+# ✅ Turbine block propagation
+# ✅ End-to-end transaction flow
+```
+
+### **3. Comprehensive Performance Test**
+Analyzes performance metrics and throughput:
+```bash
+python test_comprehensive_performance.py
+
+# What it measures:
+# ✅ Transaction submission TPS
+# ✅ PoH tick generation rate
+# ✅ Sealevel execution parallelism
+# ✅ Consensus timing
+# ✅ Network latency
+# ✅ End-to-end transaction processing time
+```
+
+### **4. Load Testing**
+```bash
+# Test with multiple concurrent transactions
+python test_comprehensive_performance.py --transactions 50 --threads 5
+
+# Monitor during load test (separate terminal)
+python monitor_logs.py watch performance node_10000
+```
+
+## 🔧 **Configuration**
+
+### **Node Configuration**
+Modify node startup parameters in `start_nodes.sh`:
+```bash
+# Default configuration
+NUM_NODES=5           # Number of nodes to start
+PORT_START=10000      # Starting P2P port
+API_START=11000       # Starting API port
+
+# To start more nodes:
+# Edit start_nodes.sh and change NUM_NODES=10
+```
+
+### **Consensus Configuration**
+Quantum consensus parameters in `blockchain/quantum_consensus/`:
+- **Slot duration**: 2 seconds (configurable)
+- **Leader lookahead**: 5 slots
+- **Quantum annealing parameters**: Tunable in quantum_consensus.py
+
+### **Performance Tuning**
+PoH and Sealevel parameters in their respective files:
+```python
+# In proof_of_history.py
+self.ticks_per_second = 5000  # PoH frequency
+self.max_entries_in_memory = 10000
+
+# In sealevel.py  
+self.thread_pool_size = 8  # Parallel execution threads
+self.max_batch_size = 100  # Transaction batch size
+```
+
+## � **Docker Deployment**
+
+### **Build Docker Image**
+```bash
+docker build -t quantum-blockchain .
+```
+
+### **Run Single Node**
+```bash
+docker run -p 10000:10000 -p 11000:11000 \
+  -e NODE_PORT=10000 \
+  -e API_PORT=11000 \
+  quantum-blockchain
+```
+
+### **Run Multi-Node with Docker Compose**
+```bash
+# Use the provided docker-compose.yml
+docker-compose up -d
+
+# Scale to more nodes
+docker-compose up -d --scale node=5
+```
+
+## 📡 **API Reference**
+
+### **Blockchain Endpoints**
+```bash
+# Get blockchain status
+GET http://localhost:11000/api/v1/blockchain/
+
+# Get specific block
+GET http://localhost:11000/api/v1/blockchain/block/{block_index}
+
+# Get node statistics
+GET http://localhost:11000/api/v1/blockchain/node-stats/
+```
+
+### **Transaction Endpoints**
+```bash
+# Submit transaction
+POST http://localhost:11000/api/v1/transaction/create/
+Content-Type: application/json
+{
+  "transaction": "<base64_encoded_transaction>"
+}
+
+# Get transaction pool status
+GET http://localhost:11000/api/v1/blockchain/mempool/
+```
+
+### **Health Check**
+```bash
+# Node health status
+GET http://localhost:11000/api/v1/health/
+
+# Expected response:
+{
+  "status": "healthy",
+  "node_id": "node_10000",
+  "uptime": "0:05:23",
+  "consensus": "active",
+  "poh_ticks": 1500000,
+  "blocks": 42
+}
+```
+
+## � **Troubleshooting**
+
+### **Common Issues**
+
+#### **Port Already in Use**
+```bash
+# Check what's using the port
+lsof -i :10000
+
 # Kill existing processes
-# Windows:
-taskkill /f /im python.exe
+pkill -f 'run_node.py'
 
-# Linux/macOS:
-pkill -f "run_node.py"
+# Start fresh
+./start_nodes.sh
 ```
 
-#### 3. Nodes Not Responding
-Check the log files:
+#### **Key Generation Fails**
 ```bash
-# View node logs
-cat logs/node1.log
-cat logs/node1_error.log
+# Ensure OpenSSL is installed
+openssl version
 
-# Real-time log monitoring
-tail -f logs/node1.log
+# Regenerate keys
+rm keys/*.pem
+./generate_keys.sh
 ```
 
-#### 4. Key File Not Found
+#### **Nodes Not Connecting**
 ```bash
-# Generate missing keys
-bash generate_keys.sh
+# Check node logs
+python monitor_logs.py tail network node_10000
 
-# Or manually create specific key
-python -c "
-from blockchain.transaction.wallet import Wallet
-wallet = Wallet()
-wallet.save_keys('keys/node1_private_key.pem', 'keys/node1_public_key.pem')
-"
+# Verify network connectivity
+curl http://localhost:11000/api/v1/health/
 ```
 
-### Performance Optimization
+#### **Poor Performance**
+```bash
+# Check system resources
+htop
 
-#### For Multiple Nodes:
-- Increase delay between node startups if experiencing connection issues
-- Monitor system resources (CPU, memory) during high transaction loads
-- Use SSD storage for better I/O performance
+# Monitor performance logs
+python monitor_logs.py watch performance node_10000
 
-#### For High Transaction Volumes:
-- Adjust transaction pool size in configuration
-- Modify consensus parameters for faster block generation
-- Consider running nodes on separate machines for true distributed testing
-
-## 📁 Project Structure
-
-```
-proofwithquantumannealing/
-├── blockchain/
-│   ├── api/                    # REST API implementation
-│   ├── blockchain/             # Core blockchain logic
-│   │   ├── quantum_consensus/  # Quantum annealing consensus
-│   │   ├── transaction/        # Transaction handling
-│   │   └── utils/             # Utility functions
-│   ├── keys/                  # Cryptographic keys
-│   ├── logs/                  # Node operation logs
-│   ├── documentation/         # Technical documentation
-│   ├── tests/                 # Unit and integration tests
-│   ├── req.txt               # Python dependencies
-│   ├── run_node.py           # Node startup script
-│   ├── test_transactions.py  # Transaction testing
-│   ├── analyze_forgers.py    # Network analysis
-│   └── start_nodes_clean.ps1 # Multi-node startup (Windows)
-└── README.md                 # This file
+# Tune configuration parameters
+# Edit blockchain/consensus/ configuration files
 ```
 
-## 🤝 Contributing
+### **Debug Mode**
+```bash
+# Start with debug logging
+export LOG_LEVEL=DEBUG
+python run_node.py --ip localhost --node_port 10000 --api_port 11000
 
+# View debug logs
+python monitor_logs.py watch debug node_10000
+```
+
+## 📊 **Performance Benchmarks**
+
+### **Expected Performance**
+Based on testing with 5 nodes on modern hardware:
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Transaction Submission** | 272+ TPS | API submission rate |
+| **PoH Tick Rate** | 5,000/sec | Cryptographic clock |
+| **Consensus Time** | 2-15 seconds | Leader selection + block creation |
+| **Sealevel Threads** | 8 parallel | Configurable |
+| **Block Size** | Unlimited | Removed artificial limits |
+| **Network Latency** | <10ms | Localhost testing |
+
+### **Scaling Considerations**
+- **Vertical scaling**: Increase `ticks_per_second`, `thread_pool_size`
+- **Horizontal scaling**: Add more nodes (tested up to 10 nodes)
+- **Network optimization**: Tune Turbine fanout and shred sizes
+- **Storage optimization**: Implement block pruning for long-running deployments
+
+## �️ **Development**
+
+### **Code Structure**
+```
+blockchain/
+├── blockchain/           # Core implementation
+│   ├── consensus/       # PoH, Sealevel, Turbine
+│   ├── quantum_consensus/ # Quantum leader selection
+│   ├── transaction/     # Transaction processing
+│   ├── p2p/            # P2P networking
+│   └── utils/          # Enhanced logging & utilities
+├── api/                # FastAPI endpoints
+├── tests/              # Test scripts
+├── keys/               # Cryptographic keys
+└── logs/               # Enhanced logging output
+```
+
+### **Adding New Features**
+1. **New consensus mechanism**: Extend `blockchain/consensus/`
+2. **New transaction types**: Modify `blockchain/transaction/`
+3. **New APIs**: Add endpoints in `api/`
+4. **New monitoring**: Extend `monitor_logs.py`
+
+### **Contributing**
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create feature branch: `git checkout -b feature/new-feature`
+3. Add tests for new functionality
+4. Ensure all tests pass: `python test_solana_flow.py`
+5. Submit pull request
 
-## 📄 License
+## 📚 **Additional Resources**
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### **Documentation**
+- **[CLEANUP_COMPLETE.md](CLEANUP_COMPLETE.md)** - Project cleanup summary
+- **[BFT_CONSENSUS_IMPLEMENTATION_PLAN.md](BFT_CONSENSUS_IMPLEMENTATION_PLAN.md)** - Consensus architecture
 
-## 📞 Support
+### **Architecture References**
+- **Solana Whitepaper**: Proof of History and parallel processing concepts
+- **Quantum Computing**: D-Wave quantum annealing for consensus
+- **Byzantine Fault Tolerance**: Enhanced with quantum consensus
 
-For questions, issues, or contributions:
-- Open an issue on GitHub
-- Check existing documentation in the `blockchain/documentation/` directory
-- Review the troubleshooting section above
+## 📄 **License**
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🤝 **Support**
+
+- **Issues**: Report bugs and request features via GitHub Issues
+- **Monitoring**: Use `python monitor_logs.py summary` for system status
 
 ---
 
-**Disclaimer**: This is a research project for educational and demonstration purposes. Do not use in production environments or with real financial assets.
+**🚀 Ready to build the future of quantum-enhanced blockchain technology!**
+
+⚠️ **Note**: This is a research and demonstration project. Not intended for production use.
