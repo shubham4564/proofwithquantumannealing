@@ -11,9 +11,11 @@ class LeaderSchedule:
     """
     
     def __init__(self, epoch_duration_hours=24):
-        self.epoch_duration_seconds = epoch_duration_hours * 3600  # 24 hours default
-        self.slot_duration_seconds = 30  # 30 seconds per slot (block proposal interval)
-        self.slots_per_epoch = self.epoch_duration_seconds // self.slot_duration_seconds
+        # Override to use 2 minutes for demonstration
+        self.epoch_duration_seconds = 120  # 2 minutes for demo instead of 24 hours
+        self.slot_duration_seconds = 2  # 2 seconds per slot for fast block creation
+        self.slots_per_epoch = self.epoch_duration_seconds // self.slot_duration_seconds  # 60 slots
+        self.leader_advance_time = 60  # Leaders known 1 minute in advance (reduced for demo)
         
         # Current epoch data
         self.current_epoch = 0
@@ -21,11 +23,16 @@ class LeaderSchedule:
         self.current_schedule = {}  # slot_number -> leader_public_key
         self.next_schedule = {}     # Pre-computed next epoch schedule
         
+        # Gulf Stream forwarding data
+        self.gulf_stream_cache = {}  # Cache of upcoming leaders for forwarding
+        self.last_schedule_update = 0
+        
         logger.info({
             "message": "Leader schedule initialized",
-            "epoch_duration_hours": epoch_duration_hours,
+            "epoch_duration_seconds": self.epoch_duration_seconds,
             "slot_duration_seconds": self.slot_duration_seconds,
-            "slots_per_epoch": self.slots_per_epoch
+            "slots_per_epoch": self.slots_per_epoch,
+            "leader_advance_time_seconds": self.leader_advance_time
         })
     
     def generate_epoch_schedule(self, epoch_number: int, quantum_consensus, seed_hash: str) -> Dict[int, str]:
@@ -87,10 +94,11 @@ class LeaderSchedule:
         current_slot = self.get_current_slot()
         return self.current_schedule.get(current_slot)
     
-    def get_upcoming_leaders(self, num_slots: int = 5) -> List[tuple]:
+    def get_upcoming_leaders(self, num_slots: int = 30) -> List[tuple]:
         """
-        Get upcoming leaders for the next N slots.
+        Get upcoming leaders for the next N slots (default 30 = 1 minute ahead).
         Returns list of (slot_number, leader_public_key, absolute_time) tuples.
+        Critical for Gulf Stream forwarding - transactions forwarded to upcoming leaders.
         """
         current_slot = self.get_current_slot()
         upcoming = []
@@ -111,6 +119,56 @@ class LeaderSchedule:
                 upcoming.append((future_slot, leader, future_time))
         
         return upcoming
+    
+    def get_leader_for_time(self, target_time: float) -> Optional[str]:
+        """
+        Get the leader who will be active at a specific future time.
+        Used for Gulf Stream transaction forwarding.
+        """
+        time_offset = target_time - self.epoch_start_time
+        target_slot = int(time_offset // self.slot_duration_seconds)
+        
+        if target_slot < self.slots_per_epoch:
+            return self.current_schedule.get(target_slot)
+        else:
+            # Next epoch
+            next_epoch_slot = target_slot - self.slots_per_epoch
+            return self.next_schedule.get(next_epoch_slot)
+    
+    def get_gulf_stream_targets(self) -> List[Dict]:
+        """
+        Get the next 30 slots (1 minute) of leaders for Gulf Stream forwarding.
+        Returns detailed info needed for transaction forwarding.
+        """
+        current_time = time.time()
+        upcoming_leaders = self.get_upcoming_leaders(30)  # 1 minute = 30 slots of 2 seconds
+        
+        gulf_stream_targets = []
+        for slot, leader, slot_time in upcoming_leaders:
+            if slot_time > current_time:  # Only future slots
+                gulf_stream_targets.append({
+                    'slot': slot,
+                    'leader': leader,
+                    'slot_start_time': slot_time,
+                    'slot_end_time': slot_time + self.slot_duration_seconds,
+                    'time_until_slot': slot_time - current_time
+                })
+        
+        return gulf_stream_targets
+    
+    def should_forward_to_leader(self, leader_public_key: str, current_time: float) -> bool:
+        """
+        Check if transactions should be forwarded to this leader.
+        Leaders receive transactions up to 1 minute before their slot.
+        """
+        upcoming_targets = self.get_gulf_stream_targets()
+        
+        for target in upcoming_targets:
+            if target['leader'] == leader_public_key:
+                # Forward if leader's slot is within 2 minutes
+                return target['time_until_slot'] <= self.leader_advance_time
+        
+        return False
     
     def is_epoch_transition_needed(self) -> bool:
         """Check if we need to transition to the next epoch"""
