@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "creation_time": 1640995200,
+  "network_id": "a7175a6ca502f10ee5b93525057310e06993003b72ea0ba51554fa8f74ad0ddf",
+  "cluster_config": {
+    "hashes_per_tick": 12500,
+    "ticks_per_slot": 64,
+    "target_lamports_per_signature": 5000,
+    "slots_per_epoch": 432000,
+    "epoch_warmup": true,
+    "inflation": {
+      "initial": 0.08,
+      "terminal": 0.015,
+      "taper": 0.15
+    },
+    "cluster_type": "Development"
+  },
+  "accounts": {
+    "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2IwXdzVPo29t8hcp5vgL\nrHXTgTERpZXL92ShVSwt65TvJTztX67ypi2qDufrHbYbfvtqHnzGio8ptd2+Bitv\nmaJQNmqzaRw/BKTslT/1GY2sCR1DueJOSJNq5nvz0rdaetNlx01eo4mKkgsfPIF2\nRQomMYHjVyyrhCrPhhVENufK0F1bW5Nm7utyV0m5nH9H3j3RURb9VPv4resUJqMI\nKkmU3y/psW+rz+nwhWn+xq2+dq5l4On71bPwmuXBLpk2RonzuT8ibk29DvlsrxGq\nXVxwaNE7DEiRbwl37Y9StAoZz2xih76LxKZSzJXqEodcH04vIqy0aVM9+KmVxDii\n/QIDAQAB\n-----END PUBLIC KEY-----\n": 900000000,
+    "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4xhP5wCF0QfRGx4a6wt5\naxltcXDEqpm+ZgbVP2LHTGTcE0Xq/9ar6D7v0DLbLo3KwlAbKKWfnnO7H8wPO1Di\nhskoX8jg0Ldhn4nGW99Jr/neahz7wfIkyL9pHU1nXlfexUfVICCuRbkRgObcQ84k\nUh6E+FMzj5EISpoPydedUoWhCMkXw04zDJKqGEP/kuktHSfIuW69oxPwEIirlsmz\no1aiI0J2BJfh3gu9EfdrcCdka9zSweDJT6e6w/QbOLuwCbeIRwAQr2EEvbod7xyD\nN3BwWI3YG08M3xmuWn8+qDd4VFhZQhZI3ee7cjN5DmSitnCqkDhA6qKvHz+dJhsc\n+QIDAQAB\n-----END PUBLIC KEY-----\n": 50000000,
+    "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtMRUY6DX3zFJyFXerZn6\nQKXWE6Ao8xspmz30tMPaD4dtOY8b9EgdWcWqZlcSudbTuiIkGa2xI60ZL6/CEmON\n01yTGNHJnBl42xanRa8B+VAjzHV+Rv4u67cheuWhbSdTkHLatRlqGPdzrIJOmR1c\nGy6JRIa8bK2jPAlqyVfaD+cVi2m6WWJTh/+xGxlI6vWJ56QK+rMHA8JA3rFczmLP\nlnUM/GWb6hkCtpGYdViO2xi1LRMpm2/FgESD0RqCYMsUXpIro5i+KnIJuvg6kbyK\nIqdUczrGazKqeqD9e1kRCeiIgDCssRFY6S8VMD44XZoOYwDGzpDVMKcRtXnaQPNl\nvQIDAQAB\n-----END PUBLIC KEY-----\n": 50000000
+  },
+  "bootstrap_validator": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4xhP5wCF0QfRGx4a6wt5\naxltcXDEqpm+ZgbVP2LHTGTcE0Xq/9ar6D7v0DLbLo3KwlAbKKWfnnO7H8wPO1Di\nhskoX8jg0Ldhn4nGW99Jr/neahz7wfIkyL9pHU1nXlfexUfVICCuRbkRgObcQ84k\nUh6E+FMzj5EISpoPydedUoWhCMkXw04zDJKqGEP/kuktHSfIuW69oxPwEIirlsmz\no1aiI0J2BJfh3gu9EfdrcCdka9zSweDJT6e6w/QbOLuwCbeIRwAQr2EEvbod7xyD\nN3BwWI3YG08M3xmuWn8+qDd4VFhZQhZI3ee7cjN5DmSitnCqkDhA6qKvHz+dJhsc\n+QIDAQAB\n-----END PUBLIC KEY-----\n",
+  "bootstrap_vote": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtMRUY6DX3zFJyFXerZn6\nQKXWE6Ao8xspmz30tMPaD4dtOY8b9EgdWcWqZlcSudbTuiIkGa2xI60ZL6/CEmON\n01yTGNHJnBl42xanRa8B+VAjzHV+Rv4u67cheuWhbSdTkHLatRlqGPdzrIJOmR1c\nGy6JRIa8bK2jPAlqyVfaD+cVi2m6WWJTh/+xGxlI6vWJ56QK+rMHA8JA3rFczmLP\nlnUM/GWb6hkCtpGYdViO2xi1LRMpm2/FgESD0RqCYMsUXpIro5i+KnIJuvg6kbyK\nIqdUczrGazKqeqD9e1kRCeiIgDCssRFY6S8VMD44XZoOYwDGzpDVMKcRtXnaQPNl\nvQIDAQAB\n-----END PUBLIC KEY-----\n",
+  "faucet": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2IwXdzVPo29t8hcp5vgL\nrHXTgTERpZXL92ShVSwt65TvJTztX67ypi2qDufrHbYbfvtqHnzGio8ptd2+Bitv\nmaJQNmqzaRw/BKTslT/1GY2sCR1DueJOSJNq5nvz0rdaetNlx01eo4mKkgsfPIF2\nRQomMYHjVyyrhCrPhhVENufK0F1bW5Nm7utyV0m5nH9H3j3RURb9VPv4resUJqMI\nKkmU3y/psW+rz+nwhWn+xq2+dq5l4On71bPwmuXBLpk2RonzuT8ibk29DvlsrxGq\nXVxwaNE7DEiRbwl37Y9StAoZz2xih76LxKZSzJXqEodcH04vIqy0aVM9+KmVxDii\n/QIDAQAB\n-----END PUBLIC KEY-----\n",
+  "genesis_hash": "61321a341ee7ca997bc932eb0acf712ded15e549afc5b432be710db06347d5ed",
+  "block_height": 0,
+  "slot": 0,
+  "epoch": 0
+}

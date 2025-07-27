@@ -13,8 +13,8 @@ class LeaderSchedule:
     def __init__(self, epoch_duration_hours=24):
         # Override to use 2 minutes for demonstration
         self.epoch_duration_seconds = 120  # 2 minutes for demo instead of 24 hours
-        self.slot_duration_seconds = 2  # 2 seconds per slot for fast block creation
-        self.slots_per_epoch = self.epoch_duration_seconds // self.slot_duration_seconds  # 60 slots
+        self.slot_duration_seconds = 10  # 10 seconds per slot for leader block production
+        self.slots_per_epoch = self.epoch_duration_seconds // self.slot_duration_seconds  # 12 slots per epoch
         self.leader_advance_time = 60  # Leaders known 1 minute in advance (reduced for demo)
         
         # Current epoch data
@@ -59,18 +59,48 @@ class LeaderSchedule:
             logger.warning("No registered nodes for leader schedule generation")
             return schedule
         
+        # CRITICAL FIX: Get viable leaders (nodes with good scores)
+        viable_leaders = []
+        for node_id in registered_nodes:
+            try:
+                # Check if node has good effective score (>0.1 threshold)
+                node_metrics = quantum_consensus.get_consensus_metrics()
+                node_scores = node_metrics.get('node_scores', {})
+                if node_id in node_scores:
+                    effective_score = node_scores[node_id].get('effective_score', 0)
+                    if effective_score > 0.1:  # Viable leader threshold
+                        viable_leaders.append(node_id)
+            except:
+                # If scoring fails, include all nodes as fallback
+                viable_leaders = registered_nodes
+                break
+        
+        # Use viable leaders if available, otherwise fallback to all nodes
+        leader_pool = viable_leaders if viable_leaders else registered_nodes
+        
+        logger.info({
+            "message": "Leader pool analysis",
+            "total_registered": len(registered_nodes),
+            "viable_leaders": len(leader_pool),
+            "leader_pool": [node[:20] + "..." for node in leader_pool[:3]]
+        })
+        
         # Generate schedule for each slot in the epoch
         for slot in range(self.slots_per_epoch):
             # Create unique seed for each slot
             slot_seed = hashlib.sha256(f"{epoch_seed}_{slot}".encode()).hexdigest()
             
-            # Use quantum consensus to select leader for this specific slot
+            # CRITICAL FIX: Try quantum selection first, then fallback to viable leaders
             selected_leader = quantum_consensus.select_representative_node(slot_seed)
             
-            if selected_leader:
+            if selected_leader and selected_leader in leader_pool:
+                # Use quantum-selected leader if viable
                 schedule[slot] = selected_leader
+            elif leader_pool:
+                # Fallback to round-robin from viable leaders
+                schedule[slot] = leader_pool[slot % len(leader_pool)]
             else:
-                # Fallback to round-robin if quantum selection fails
+                # Final fallback to any registered node
                 schedule[slot] = registered_nodes[slot % len(registered_nodes)]
         
         logger.info({

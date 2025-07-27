@@ -291,3 +291,226 @@ async def quantum_leader_selection(request: Request):
             "error": f"Failed to get quantum leader selection details: {str(e)}",
             "quantum_consensus_enabled": False
         }
+
+
+@router.post("/sync/", name="CRITICAL FIX: Emergency blockchain synchronization")
+async def sync_blockchain(request: Request, sync_data: dict = None):
+    """
+    CRITICAL FIX: Emergency blockchain synchronization endpoint.
+    
+    This fixes the 90% network synchronization failure by allowing nodes to:
+    1. Receive missing blocks from leader
+    2. Apply blockchain snapshots
+    3. Synchronize account state
+    
+    This is the critical missing API endpoint identified in emergency_sync_tool.py
+    """
+    node = request.app.state.node
+    
+    try:
+        if sync_data is None:
+            # Return current sync status
+            return {
+                "sync_status": "ready",
+                "current_block_height": len(node.blockchain.blocks),
+                "latest_block_hash": node.blockchain.blocks[-1].payload() if node.blockchain.blocks else None,
+                "node_id": getattr(node, 'public_key', 'unknown')[:20] + "...",
+                "message": "Node ready for synchronization"
+            }
+        
+        sync_type = sync_data.get('type', 'blocks')
+        
+        if sync_type == 'snapshot':
+            # Apply a complete blockchain snapshot
+            snapshot_data = sync_data.get('snapshot')
+            if not snapshot_data:
+                return {
+                    "success": False,
+                    "error": "Missing snapshot data"
+                }
+            
+            success = node.blockchain.apply_snapshot(snapshot_data)
+            return {
+                "success": success,
+                "sync_type": "snapshot",
+                "blocks_synchronized": len(node.blockchain.blocks),
+                "message": "Snapshot applied successfully" if success else "Snapshot application failed"
+            }
+            
+        elif sync_type == 'blocks':
+            # Receive and add individual blocks
+            blocks_data = sync_data.get('blocks', [])
+            if not blocks_data:
+                return {
+                    "success": False,
+                    "error": "Missing blocks data"
+                }
+            
+            synchronized_count = 0
+            errors = []
+            
+            for block_data in blocks_data:
+                try:
+                    # Reconstruct block object
+                    from blockchain.block import Block
+                    block = Block(
+                        transactions=block_data.get('transactions', []),
+                        forger=block_data.get('forger', ''),
+                        block_count=block_data.get('block_count', 0),
+                        last_hash=block_data.get('last_hash', '')
+                    )
+                    block.timestamp = block_data.get('timestamp', 0)
+                    block.signature = block_data.get('signature', '')
+                    
+                    # Validate and add block
+                    if node.blockchain.block_valid(block):
+                        node.blockchain.add_block(block)
+                        synchronized_count += 1
+                    else:
+                        errors.append(f"Block {block.block_count} validation failed")
+                        
+                except Exception as e:
+                    errors.append(f"Block processing error: {str(e)}")
+            
+            return {
+                "success": synchronized_count > 0,
+                "sync_type": "blocks",
+                "blocks_received": len(blocks_data),
+                "blocks_synchronized": synchronized_count,
+                "errors": errors,
+                "current_block_height": len(node.blockchain.blocks),
+                "message": f"Synchronized {synchronized_count}/{len(blocks_data)} blocks"
+            }
+            
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown sync type: {sync_type}. Supported: 'snapshot', 'blocks'"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Synchronization failed: {str(e)}",
+            "sync_type": sync_data.get('type', 'unknown') if sync_data else 'status_check'
+        }
+
+
+@router.get("/snapshot/", name="CRITICAL FIX: Create blockchain snapshot")
+async def create_snapshot(request: Request):
+    """
+    CRITICAL FIX: Create a blockchain snapshot for synchronization.
+    
+    This implements the missing snapshot mechanism for new node catch-up.
+    """
+    node = request.app.state.node
+    
+    try:
+        snapshot = node.blockchain.create_snapshot()
+        
+        return {
+            "success": True,
+            "snapshot": snapshot,
+            "timestamp": snapshot.get('timestamp'),
+            "block_height": snapshot.get('block_height'),
+            "total_accounts": len(snapshot.get('account_state', {}).get('balances', {})),
+            "recent_blocks_count": len(snapshot.get('recent_blocks', [])),
+            "message": "Snapshot created successfully"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Snapshot creation failed: {str(e)}"
+        }
+
+
+@router.post("/turbine/shreds/", name="CRITICAL FIX: Receive Turbine shreds")
+async def receive_turbine_shreds(request: Request):
+    """
+    CRITICAL FIX: Endpoint to receive Turbine protocol shreds
+    
+    This implements the missing network reception layer for Turbine protocol.
+    Without this, shreds are created but never actually transmitted/received.
+    """
+    try:
+        node = request.app.state.node
+        data = await request.json()
+        
+        shreds = data.get('shreds', [])
+        sender_node = data.get('sender_node', 'unknown')
+        
+        if not shreds:
+            return {
+                "success": False,
+                "error": "No shreds provided"
+            }
+        
+        results = {
+            "shreds_received": 0,
+            "shreds_processed": 0,
+            "blocks_reconstructed": 0,
+            "forwarding_tasks": 0,
+            "errors": []
+        }
+        
+        # Process each shred
+        for shred_data in shreds:
+            try:
+                # Convert hex data back to bytes
+                shred_bytes = bytes.fromhex(shred_data['data'])
+                
+                # Process through node's Turbine handler
+                if hasattr(node, 'handle_turbine_shred'):
+                    result = node.handle_turbine_shred(shred_bytes)
+                    results['shreds_processed'] += 1
+                    results['forwarding_tasks'] += result.get('forwarding_tasks_executed', 0)
+                    
+                    if result.get('reconstruction_complete'):
+                        results['blocks_reconstructed'] += 1
+                
+                results['shreds_received'] += 1
+                
+            except Exception as e:
+                results['errors'].append(f"Failed to process shred {shred_data.get('index', 'unknown')}: {str(e)}")
+        
+        # Log reception
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info({
+            "message": "CRITICAL FIX: Turbine shreds received via network",
+            "sender": sender_node[:20] + "..." if len(sender_node) > 20 else sender_node,
+            "shreds_received": results['shreds_received'],
+            "shreds_processed": results['shreds_processed'],
+            "blocks_reconstructed": results['blocks_reconstructed'],
+            "reception_method": "REST_API"
+        })
+        
+        return {
+            "success": True,
+            "message": "Turbine shreds processed successfully",
+            **results
+        }
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"CRITICAL ERROR: Failed to receive Turbine shreds: {e}")
+        
+        return {
+            "success": False,
+            "error": f"Failed to process Turbine shreds: {str(e)}"
+        }
+
+
+@router.get("/health/", name="Node health check")
+async def health_check(request: Request):
+    """Basic health check endpoint for peer discovery"""
+    node = request.app.state.node
+    
+    return {
+        "status": "healthy",
+        "node_id": getattr(node, 'public_key', 'unknown')[:20] + "...",
+        "blockchain_height": len(node.blockchain.blocks),
+        "timestamp": __import__('time').time()
+    }

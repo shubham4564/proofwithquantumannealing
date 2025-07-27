@@ -378,6 +378,10 @@ class CRDS:
         if keys_to_remove:
             logger.info(f"Cleaned up {len(keys_to_remove)} old CRDS entries")
     
+    def get_all_values(self) -> List[CrdsValue]:
+        """Get all CRDS values stored in the table"""
+        return list(self.table.values())
+    
     def get_stats(self) -> Dict:
         """Get CRDS statistics"""
         stats = {

@@ -41,8 +41,9 @@ class Node:
         if key is not None:
             self.wallet.from_key(key)
             
-        # Initialize blockchain with this node's public key for gossip integration
-        self.blockchain = Blockchain(genesis_public_key=self.wallet.public_key_string())
+        # CRITICAL FIX: Initialize blockchain WITHOUT genesis_public_key to force shared genesis
+        # This ensures ALL nodes use the same genesis block from keys/genesis_private_key.pem
+        self.blockchain = Blockchain()
         
         # ENHANCED: Register this node with quantum consensus immediately at startup
         if self.blockchain.quantum_consensus:
@@ -115,6 +116,77 @@ class Node:
         except Exception as e:
             logger.warning(f"Failed to register node in Turbine network: {e}")
             logger.info("Node will still function with P2P-only block propagation")
+    
+    def turbine_peer_discovery(self):
+        """
+        CRITICAL FIX: Discover and register peers in Turbine network
+        
+        This fixes the root cause where each node only knows about itself in Turbine.
+        Now nodes discover each other and cross-register for block propagation.
+        """
+        try:
+            logger.info("CRITICAL FIX: Starting Turbine peer discovery...")
+            
+            import requests
+            import time
+            
+            discovered_peers = []
+            my_port = getattr(self, 'port', 11000)
+            
+            # Discover peers on common API ports
+            for i in range(10):  # Check first 10 nodes
+                peer_port = 11000 + i
+                
+                # Skip self
+                if peer_port == my_port:
+                    continue
+                
+                try:
+                    # Check if peer is reachable
+                    response = requests.get(f'http://127.0.0.1:{peer_port}/ping/', timeout=2)
+                    
+                    if response.status_code == 200:
+                        # Calculate stake weight for peer (same formula as self-registration)
+                        peer_index = peer_port - 10000 if peer_port >= 10000 else 0
+                        peer_stake = max(10, 100 - (peer_index * 5))
+                        
+                        # Create peer validator ID
+                        peer_validator_id = f"node_{i+1}_validator_" + "x" * 40  # Mock but consistent ID
+                        
+                        # Register peer in this node's Turbine network
+                        self.blockchain.register_turbine_validator(
+                            validator_id=peer_validator_id,
+                            stake_weight=peer_stake,
+                            network_address=f"127.0.0.1:{peer_port}"
+                        )
+                        
+                        discovered_peers.append({
+                            'node_num': i + 1,
+                            'port': peer_port,
+                            'validator_id': peer_validator_id,
+                            'stake_weight': peer_stake
+                        })
+                        
+                        logger.debug(f"Registered peer Node {i+1} (port {peer_port}) with Turbine")
+                        
+                except Exception:
+                    pass  # Peer not reachable, continue
+            
+            logger.info({
+                "message": "CRITICAL FIX: Turbine peer discovery complete",
+                "discovered_peers": len(discovered_peers),
+                "total_validators_in_turbine": len(discovered_peers) + 1,  # +1 for self
+                "peer_ports": [peer['port'] for peer in discovered_peers]
+            })
+            
+            # Brief delay to ensure all peers complete their discovery
+            time.sleep(2)
+            
+            return discovered_peers
+            
+        except Exception as e:
+            logger.error(f"CRITICAL ERROR: Turbine peer discovery failed: {e}")
+            return []
 
     def start_p2p(self, enhanced=True):
         """
@@ -133,6 +205,20 @@ class Node:
         
         # Start gossip protocol for leader schedule distribution
         self.start_gossip_protocol()
+        
+        # CRITICAL FIX: Discover and register peers for Turbine protocol
+        # This enables cross-node block propagation by registering peer validators
+        logger.info("Initiating Turbine peer discovery for cross-node propagation...")
+        discovered_peers = self.turbine_peer_discovery()
+        
+        if discovered_peers:
+            logger.info({
+                "message": "TURBINE PEER DISCOVERY SUCCESS", 
+                "peers_registered": len(discovered_peers),
+                "propagation_ready": True
+            })
+        else:
+            logger.warning("No Turbine peers discovered - blocks may not propagate!")
     
     def start_gossip_protocol(self):
         """Start the gossip protocol for leader schedule distribution"""

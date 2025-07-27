@@ -15,15 +15,33 @@ from blockchain.transaction.wallet import Wallet
 from blockchain.utils.helpers import BlockchainUtils
 
 def load_keys():
-    """Load genesis keys for testing"""
+    """Load genesis keys for testing from Solana-style genesis configuration"""
     try:
-        with open('keys/genesis_private_key.pem', 'r') as f:
-            private_key = f.read()
-        with open('keys/genesis_public_key.pem', 'r') as f:
-            public_key = f.read()
-        return private_key, public_key
-    except FileNotFoundError:
-        print("❌ Error: Key files not found. Run ./generate_keys.sh first")
+        # Load from the new Solana-style genesis configuration
+        from blockchain.genesis_config import GenesisConfig
+        
+        # Load genesis configuration
+        genesis_data = GenesisConfig.load_genesis_config("genesis_config/genesis.json")
+        
+        # Get the faucet public key (has the most tokens for testing)
+        faucet_public_key = genesis_data["faucet"]
+        
+        # Load the faucet private key
+        with open('genesis_config/faucet_private_key.pem', 'r') as f:
+            faucet_private_key = f.read()
+            
+        print(f"✅ Loaded faucet keys for testing")
+        print(f"   Public key: {faucet_public_key[:50]}...")
+        print(f"   Genesis network: {genesis_data['network_id'][:16]}...")
+        
+        return faucet_private_key, faucet_public_key
+        
+    except FileNotFoundError as e:
+        print(f"❌ Error: Genesis configuration not found: {e}")
+        print("   Run: python3 -m blockchain.genesis_config --supply 1000000000")
+        return None, None
+    except Exception as e:
+        print(f"❌ Error loading genesis keys: {e}")
         return None, None
 
 def create_sample_transaction():

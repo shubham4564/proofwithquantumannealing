@@ -13,7 +13,7 @@ class SlotBasedBlockProducer:
     Ensures blocks are produced exactly at slot boundaries.
     """
     
-    def __init__(self, node, slot_duration_seconds=30):
+    def __init__(self, node, slot_duration_seconds=10):
         self.node = node
         self.slot_duration_seconds = slot_duration_seconds
         self.running = False

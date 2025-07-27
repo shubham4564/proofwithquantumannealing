@@ -92,6 +92,17 @@ class Wallet:
         )
         return public_key_pem.decode("utf-8")
 
+    def get_private_key_pem(self):
+        """Export private key in PEM format for genesis configuration."""
+        from cryptography.hazmat.primitives import serialization
+        
+        private_key_pem = self.key_pair.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        return private_key_pem.decode("utf-8")
+
     def create_transaction(self, receiver, amount, type):
         transaction = Transaction(self.public_key_string(), receiver, amount, type)
         signature = self.sign(transaction.payload())

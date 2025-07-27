@@ -33,14 +33,14 @@ start_node() {
     
     # Use genesis key for node 1, or generate/use existing keys for other nodes
     if [ $node_num -eq 1 ]; then
-        key_file="keys/genesis_private_key.pem"
+        key_file="keys/node1_private_key.pem"
     elif [ ! -f "$key_file" ]; then
         # If node key doesn't exist, use staker key as fallback
         if [ -f "keys/staker_private_key.pem" ]; then
             key_file="keys/staker_private_key.pem"
         else
             echo "⚠️  Warning: Key file $key_file not found, using genesis key as fallback"
-            key_file="keys/genesis_private_key.pem"
+            key_file="keys/node1_private_key.pem"
         fi
     fi
     
