@@ -1,16 +1,36 @@
 # Development environment
 /.winvenv
+/.venv
+/venv
 
 # Logs and runtime files  
 /blockchain/logs/*.log
 /blockchain/logs/*.pid
 /blockchain/logs/**/
+*.log
+node_debug.log
 
 # Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary and debug files
+*_temp.py
+*_debug.py
+*_old.py
+test_temp*.py
+debug_*.py
 
 # Distribution / packaging
 .Python
