@@ -6,11 +6,14 @@ from dataclasses import dataclass
 @dataclass
 class Shred:
     """A single data packet for Turbine transmission"""
-    index: int
-    total_shreds: int
-    data: bytes
-    is_data_shred: bool  # True for data shreds, False for recovery shreds
-    block_hash: str
+    
+    def __init__(self, index: int, total_shreds: int, data: bytes, is_data_shred: bool, block_hash: str, original_data_shred_count: int = None):
+        self.index = index
+        self.total_shreds = total_shreds
+        self.data = data
+        self.is_data_shred = is_data_shred
+        self.block_hash = block_hash
+        self.original_data_shred_count = original_data_shred_count
     
     def to_bytes(self) -> bytes:
         """Serialize shred for network transmission"""
@@ -18,7 +21,8 @@ class Shred:
             'index': self.index,
             'total_shreds': self.total_shreds,
             'is_data_shred': self.is_data_shred,
-            'block_hash': self.block_hash
+            'block_hash': self.block_hash,
+            'original_data_shred_count': self.original_data_shred_count
         }
         header_bytes = json.dumps(header).encode()
         header_len = len(header_bytes).to_bytes(4, 'big')
@@ -37,7 +41,8 @@ class Shred:
             total_shreds=header['total_shreds'],
             data=shred_data,
             is_data_shred=header['is_data_shred'],
-            block_hash=header['block_hash']
+            block_hash=header['block_hash'],
+            original_data_shred_count=header.get('original_data_shred_count')
         )
 
 class BlockShredder:
@@ -49,7 +54,7 @@ class BlockShredder:
     
     def shred_block(self, block) -> List[Shred]:
         """
-        Shred a block into fixed-size packets with erasure coding.
+        Shred a block into fixed-size packets with Reed-Solomon style erasure coding.
         
         Args:
             block: Block to shred
@@ -74,17 +79,23 @@ class BlockShredder:
                 total_shreds=0,  # Will be set after calculating recovery shreds
                 data=chunk,
                 is_data_shred=True,
-                block_hash=block_hash
+                block_hash=block_hash,
+                original_data_shred_count=None  # Will be set after calculating recovery shreds
             )
             data_shreds.append(shred)
         
-        # Generate recovery shreds using simple XOR-based erasure coding
+        # Generate recovery shreds using Reed-Solomon style erasure coding
         recovery_shreds = self._generate_recovery_shreds(data_shreds, block_hash)
         
-        # Update total shred count
+        # Store the original data shred count for reconstruction
+        self.original_data_shred_count = len(data_shreds)
+        print(f"DEBUG shred_block: Set original_data_shred_count to {self.original_data_shred_count}, total_shreds: {len(data_shreds) + len(recovery_shreds)}")
+        
+        # Update total shred count and original data shred count
         total_shreds = len(data_shreds) + len(recovery_shreds)
         for shred in data_shreds + recovery_shreds:
             shred.total_shreds = total_shreds
+            shred.original_data_shred_count = self.original_data_shred_count
         
         return data_shreds + recovery_shreds
     
@@ -132,7 +143,8 @@ class BlockShredder:
                 total_shreds=0,  # Will be set later
                 data=bytes(recovery_data),
                 is_data_shred=False,
-                block_hash=block_hash
+                block_hash=block_hash,
+                original_data_shred_count=None  # Will be set later
             )
             recovery_shreds.append(recovery_shred)
         
@@ -140,7 +152,7 @@ class BlockShredder:
     
     def reconstruct_block(self, shreds: List[Shred]):
         """
-        Reconstruct a block from received shreds.
+        Reconstruct a block from received shreds using Reed-Solomon style reconstruction.
         
         Args:
             shreds: List of received shreds
@@ -158,19 +170,42 @@ class BlockShredder:
         # Sort data shreds by index
         data_shreds.sort(key=lambda x: x.index)
         
-        # Calculate expected number of data shreds
+        # Calculate expected number of data shreds based on Reed-Solomon properties
+        # Use the original_data_shred_count from the shred itself (set by leader)
         total_shreds = shreds[0].total_shreds
-        expected_data_shreds = int(total_shreds / (1 + self.redundancy_ratio))
         
-        # Check if we have enough shreds to reconstruct
-        if len(data_shreds) >= expected_data_shreds:
-            # We have enough data shreds, reconstruct directly
-            return self._reconstruct_from_data_shreds(data_shreds, expected_data_shreds)
-        elif len(shreds) >= expected_data_shreds:
-            # Use erasure coding to recover missing data shreds
-            return self._reconstruct_with_erasure_coding(data_shreds, recovery_shreds, expected_data_shreds)
+        if shreds[0].original_data_shred_count is not None:
+            expected_data_shreds = shreds[0].original_data_shred_count
+            print(f"DEBUG reconstruct_block: Using shred's original_data_shred_count: {expected_data_shreds}")
+        elif hasattr(self, 'original_data_shred_count') and self.original_data_shred_count:
+            expected_data_shreds = self.original_data_shred_count
+            print(f"DEBUG reconstruct_block: Using local original_data_shred_count: {expected_data_shreds}")
         else:
-            return None
+            # Fallback to calculation (should rarely be used now)
+            expected_data_shreds = round(total_shreds / (1 + self.redundancy_ratio))
+            print(f"DEBUG reconstruct_block: Using calculated expected_data_shreds: {expected_data_shreds}")
+        
+        print(f"DEBUG reconstruct_block: Total shreds available: {len(shreds)}, Expected data shreds: {expected_data_shreds}")
+        print(f"DEBUG reconstruct_block: Data shreds: {len(data_shreds)}, Recovery shreds: {len(recovery_shreds)}")
+        
+        # Reed-Solomon rule: Need at least as many shreds as original data shreds
+        # Can be any combination of data + recovery shreds
+        if len(shreds) >= expected_data_shreds:
+            # Try direct reconstruction first if we have enough consecutive data shreds
+            if len(data_shreds) >= expected_data_shreds and self._has_consecutive_data_shreds(data_shreds, expected_data_shreds):
+                return self._reconstruct_from_data_shreds(data_shreds, expected_data_shreds)
+            elif len(shreds) >= expected_data_shreds:
+                return self._reconstruct_with_erasure_coding(data_shreds, recovery_shreds, expected_data_shreds)
+        
+        return None
+    
+    def _has_consecutive_data_shreds(self, data_shreds: List[Shred], expected_count: int) -> bool:
+        """Check if we have consecutive data shreds from 0 to expected_count-1"""
+        if len(data_shreds) < expected_count:
+            return False
+        
+        indices = [s.index for s in data_shreds]
+        return all(i in indices for i in range(expected_count))
     
     def _reconstruct_from_data_shreds(self, data_shreds: List[Shred], expected_count: int):
         """Reconstruct block from data shreds only"""
@@ -187,10 +222,11 @@ class BlockShredder:
         
         # Remove padding and deserialize
         block_data = block_data.rstrip(b'\x00')
+        
         try:
             block_dict = json.loads(block_data.decode())
             return block_dict
-        except:
+        except Exception as e:
             return None
     
     def _reconstruct_with_erasure_coding(self, data_shreds: List[Shred], recovery_shreds: List[Shred], expected_count: int):
@@ -253,7 +289,8 @@ class BlockShredder:
                 total_shreds=recovery_shred.total_shreds,
                 data=bytes(reconstructed_data),
                 is_data_shred=True,
-                block_hash=block_hash
+                block_hash=block_hash,
+                original_data_shred_count=recovery_shred.original_data_shred_count
             )
             
             # Add to available data
@@ -341,6 +378,9 @@ class TurbineProtocol:
         """
         Broadcast a block using Turbine protocol.
         
+        In proper Turbine, all validators eventually receive all shreds through gossip.
+        This simulates the gossip propagation by sending all shreds to all validators.
+        
         Returns list of transmission tasks for the network layer.
         """
         # Shred the block
@@ -349,24 +389,15 @@ class TurbineProtocol:
         # Get direct children of the leader
         children = self.propagation_tree.get_children(leader_id)
         
-        # Distribute shreds among children
+        # In Turbine, shreds are gossiped across the network so all validators
+        # eventually receive all shreds. For simulation, send all shreds to all children.
         transmission_tasks = []
-        if children:
-            shreds_per_child = len(shreds) // len(children)
-            remainder = len(shreds) % len(children)
-            
-            shred_index = 0
-            for i, child_id in enumerate(children):
-                # Calculate how many shreds this child gets
-                child_shred_count = shreds_per_child + (1 if i < remainder else 0)
-                child_shreds = shreds[shred_index:shred_index + child_shred_count]
-                shred_index += child_shred_count
-                
-                transmission_tasks.append({
-                    'target_node': child_id,
-                    'shreds': child_shreds,
-                    'action': 'send_shreds'
-                })
+        for child_id in children:
+            transmission_tasks.append({
+                'target_node': child_id,
+                'shreds': shreds,  # Send ALL shreds to each validator
+                'action': 'send_shreds'
+            })
         
         return transmission_tasks
     

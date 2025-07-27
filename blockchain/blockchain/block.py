@@ -27,9 +27,26 @@ class Block:
         return data
 
     def payload(self):
-        dict_representation = copy.deepcopy(self.to_dict())
-        dict_representation["signature"] = ""
-        return dict_representation
+        """
+        Generate the block payload for signing/verification.
+        Only includes core fields that existed when the block was originally signed.
+        Excludes metadata fields added after block creation.
+        """
+        # Core fields that are part of the original block structure
+        core_payload = {
+            "transactions": [],
+            "last_hash": self.last_hash,
+            "forger": self.forger,
+            "block_count": self.block_count,
+            "timestamp": self.timestamp,
+            "signature": ""  # Always empty for payload generation
+        }
+        
+        # Convert transactions to dictionary format
+        for transaction in self.transactions:
+            core_payload["transactions"].append(transaction.to_dict())
+            
+        return core_payload
 
     def sign(self, signature):
         self.signature = signature

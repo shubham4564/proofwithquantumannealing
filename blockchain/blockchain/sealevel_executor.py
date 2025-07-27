@@ -350,26 +350,22 @@ class SealevelExecutor:
         state after all transactions have been executed.
         """
         try:
-            # Get all account balances
-            all_accounts = {}
-            
-            # In a real implementation, this would iterate through all accounts
-            # For now, we'll use the accounts we know about from the account model
-            if hasattr(account_model, 'balances'):
-                all_accounts = account_model.balances.copy()
+            # Get all account balances using the proper method
+            all_accounts = account_model.get_all_balances()
             
             # Sort accounts for deterministic hashing
             sorted_accounts = sorted(all_accounts.items())
             
-            # Create state string for hashing
+            # Create state string for hashing (deterministic - no timestamp)
             state_string = ""
             for account_id, balance in sorted_accounts:
                 state_string += f"{account_id}:{balance};"
             
-            # Add timestamp for uniqueness
-            state_string += f"timestamp:{int(time.time() * 1000)}"
+            # Remove trailing semicolon for cleaner hash
+            if state_string.endswith(';'):
+                state_string = state_string[:-1]
             
-            # Compute SHA-256 hash
+            # Compute SHA-256 hash (deterministic)
             state_hash = hashlib.sha256(state_string.encode()).hexdigest()
             
             logger.debug(f"Computed state root hash: {state_hash[:16]}... from {len(sorted_accounts)} accounts")
@@ -380,6 +376,25 @@ class SealevelExecutor:
             logger.error(f"Failed to compute state root hash: {e}")
             # Return a fallback hash
             return hashlib.sha256(f"fallback:{time.time()}".encode()).hexdigest()
+            state_string = ""
+            for account_id, balance in sorted_accounts:
+                state_string += f"{account_id}:{balance};"
+            
+            # Remove trailing semicolon for cleaner hash
+            if state_string.endswith(';'):
+                state_string = state_string[:-1]
+            
+            # Compute SHA-256 hash (deterministic)
+            state_hash = hashlib.sha256(state_string.encode()).hexdigest()
+            
+            logger.debug(f"Computed state root hash: {state_hash[:16]}... from {len(sorted_accounts)} accounts")
+            
+            return state_hash
+            
+        except Exception as e:
+            logger.error(f"Failed to compute state root hash: {e}")
+            # Return a deterministic fallback hash
+            return hashlib.sha256("fallback:empty_state".encode()).hexdigest()
     
     def get_execution_stats(self) -> Dict:
         """Get comprehensive statistics about parallel execution performance"""

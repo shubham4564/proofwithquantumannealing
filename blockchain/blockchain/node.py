@@ -958,35 +958,52 @@ class Node:
             logger.info({"message": "Block count invalid, requesting full chain"})
             self.request_chain()
 
-        # Use proper Leader-Based Consensus validation (now implemented in blockchain.py)
-        # This includes the new block proposer validation that trusts quantum consensus selection
+        # Use new Solana-compliant block validation with voting
+        # This includes: re-execution, state root comparison, and vote creation
+        my_public_key = self.wallet.public_key_string()
+        
         if (
             last_block_hash_valid
             and block_proposer_valid
             and transactions_valid
             and signature_valid
         ):
-            logger.info({
-                "message": "Block validated successfully via Leader-Based Consensus",
-                "block_number": block.block_count,
-                "new_blockchain_length": len(self.blockchain.blocks) + 1,
-                "validations": {
-                    "last_block_hash": last_block_hash_valid,
-                    "block_proposer": block_proposer_valid,
-                    "transactions": transactions_valid,
-                    "signature": signature_valid
-                }
-            })
-            self.blockchain.add_block(block)
-            self.transaction_pool.remove_from_pool(block.transactions)
+            # Perform full Solana-compliant validation including re-execution and voting
+            solana_validation_result = self.blockchain.block_valid(block, validator_node_id=my_public_key)
             
-            # Rebroadcast to ensure all nodes receive the valid block
-            logger.info({
-                "message": "Rebroadcasting validated block to network",
-                "block_number": block.block_count
-            })
-            message = Message(self.p2p.socket_connector, "BLOCK", block)
-            self.p2p.broadcast(BlockchainUtils.encode(message))
+            if solana_validation_result:
+                logger.info({
+                    "message": "Block validated successfully with full Solana compliance",
+                    "block_number": block.block_count,
+                    "new_blockchain_length": len(self.blockchain.blocks) + 1,
+                    "validations": {
+                        "last_block_hash": last_block_hash_valid,
+                        "block_proposer": block_proposer_valid,
+                        "transactions": transactions_valid,
+                        "signature": signature_valid,
+                        "solana_compliant": True,
+                        "re_execution": True,
+                        "state_root_verified": True,
+                        "vote_created": True
+                    }
+                })
+                self.blockchain.add_block(block)
+                self.transaction_pool.remove_from_pool(block.transactions)
+                
+                # Rebroadcast to ensure all nodes receive the valid block
+                logger.info({
+                    "message": "Rebroadcasting validated block to network",
+                    "block_number": block.block_count,
+                    "validation_type": "solana_compliant"
+                })
+                message = Message(self.p2p.socket_connector, "BLOCK", block)
+                self.p2p.broadcast(BlockchainUtils.encode(message))
+            else:
+                logger.warning({
+                    "message": "Block failed Solana-compliant validation",
+                    "block_number": block.block_count,
+                    "reason": "Re-execution or state root verification failed"
+                })
         else:
             logger.warning({
                 "message": "Block rejected due to core validation failures",

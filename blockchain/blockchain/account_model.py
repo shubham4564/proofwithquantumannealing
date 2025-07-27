@@ -207,6 +207,17 @@ class AccountModel:
         """Property access to all balances for compatibility"""
         return self.get_all_balances()
     
+    @balances.setter
+    def balances(self, new_balances: Dict[str, float]):
+        """Property setter for balances - updates all account balances"""
+        with self.global_lock:
+            for public_key, balance in new_balances.items():
+                if public_key in self.accounts:
+                    self.accounts[public_key].set_balance(balance)
+                else:
+                    # Create new account with the balance
+                    self.create_account(public_key, balance)
+    
     def get_total_supply(self) -> float:
         """Calculate total supply across all accounts"""
         total = 0.0
