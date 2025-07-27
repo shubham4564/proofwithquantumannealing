@@ -827,6 +827,11 @@ class Blockchain:
             from gossip_protocol.crds import Vote
             import time
             
+            # First verify that this validator is healthy enough to vote
+            if self.quantum_consensus and not self.is_validator_healthy_for_voting(validator_node_id):
+                logger.warning(f"Validator {validator_node_id[:20]}... is not healthy enough to vote - vote rejected")
+                return
+            
             # Create vote transaction
             vote = Vote(
                 public_key=validator_node_id,
@@ -839,7 +844,7 @@ class Blockchain:
             if self.gossip_node:
                 try:
                     self.gossip_node.crds.insert_vote(vote)
-                    logger.info(f"Vote broadcasted for block {block.block_count} by validator {validator_node_id[:20]}...")
+                    logger.info(f"Vote broadcasted for block {block.block_count} by healthy validator {validator_node_id[:20]}...")
                 except Exception as e:
                     logger.warning(f"Failed to broadcast vote via gossip: {e}")
             
@@ -863,6 +868,41 @@ class Blockchain:
         except Exception as e:
             logger.error(f"Failed to create and broadcast vote: {e}")
     
+    def is_validator_healthy_for_voting(self, validator_node_id: str) -> bool:
+        """
+        Check if a validator is healthy enough to participate in voting.
+        Only healthy validators should be able to vote on blocks.
+        
+        Args:
+            validator_node_id: ID of the validator to check
+            
+        Returns:
+            bool: True if validator is healthy enough to vote, False otherwise
+        """
+        if not self.quantum_consensus or validator_node_id not in self.quantum_consensus.nodes:
+            return False
+            
+        current_time = time.time()
+        node_data = self.quantum_consensus.nodes[validator_node_id]
+        
+        # Calculate health metrics
+        node_uptime = self.quantum_consensus.calculate_uptime(validator_node_id)
+        last_seen_diff = current_time - node_data.get('last_seen', 0)
+        
+        # Health criteria for voting eligibility
+        uptime_threshold = 0.5  # At least 50% uptime
+        max_offline_time = self.quantum_consensus.max_delay_tolerance  # 30 seconds default
+        
+        is_healthy = (node_uptime >= uptime_threshold and 
+                     last_seen_diff <= max_offline_time)
+        
+        if not is_healthy:
+            logger.debug(f"Validator {validator_node_id[:20]}... health check failed: "
+                        f"uptime={node_uptime:.3f} (need >={uptime_threshold}), "
+                        f"offline_time={last_seen_diff:.1f}s (need <={max_offline_time}s)")
+        
+        return is_healthy
+    
     def get_block_vote_status(self, block_hash: str) -> Dict:
         """
         Get voting status for a specific block.
@@ -882,9 +922,25 @@ class Blockchain:
         votes = self.vote_tracker[block_hash]
         unique_validators = len(set(vote['validator_id'] for vote in votes))
         
-        # Simple consensus: require majority of known validators
-        total_known_validators = len(self.quantum_consensus.nodes) if self.quantum_consensus else 1
-        consensus_threshold = (total_known_validators * 2 // 3) + 1  # 2/3 + 1 majority
+        # Healthy-node-based consensus: require majority of HEALTHY validators only
+        if self.quantum_consensus:
+            # Filter to only healthy/active validators (as per specification)
+            current_time = time.time()
+            healthy_validators = []
+            for node_id, node_data in self.quantum_consensus.nodes.items():
+                # Consider node healthy if seen recently and has good uptime
+                node_uptime = self.quantum_consensus.calculate_uptime(node_id)
+                last_seen_diff = current_time - node_data.get('last_seen', 0)
+                
+                if node_uptime > 0.5 and last_seen_diff < self.quantum_consensus.max_delay_tolerance:
+                    healthy_validators.append(node_id)
+            
+            total_healthy_validators = len(healthy_validators)
+            logger.info(f"Consensus calculation: {total_healthy_validators} healthy validators of {len(self.quantum_consensus.nodes)} total")
+        else:
+            total_healthy_validators = 1
+            
+        consensus_threshold = (total_healthy_validators * 2 // 3) + 1  # 2/3 + 1 majority of HEALTHY nodes
         consensus_reached = unique_validators >= consensus_threshold
         
         return {
@@ -892,6 +948,7 @@ class Blockchain:
             'total_votes': len(votes),
             'unique_validators': unique_validators,
             'consensus_threshold': consensus_threshold,
+            'total_healthy_validators': total_healthy_validators if hasattr(locals(), 'total_healthy_validators') else 1,
             'consensus_reached': consensus_reached,
             'votes': [{'validator_id': v['validator_id'][:20] + "...", 'timestamp': v['timestamp']} for v in votes]
         }
