@@ -13,6 +13,8 @@ from blockchain.config.block_config import BlockConfig
 from blockchain.poh_sequencer import PoHSequencer
 from blockchain.turbine_protocol import TurbineProtocol
 from blockchain.gulf_stream import GulfStreamNode
+from gossip_protocol.gossip_node import GossipNode, GossipConfig
+from gossip_protocol.crds import ContactInfo
 
 
 class Blockchain:
@@ -40,10 +42,24 @@ class Blockchain:
         # Initialize Gulf Stream for transaction forwarding
         self.gulf_stream_node = GulfStreamNode(self)
         
+        # Initialize gossip protocol for leader schedule distribution
+        self.gossip_node = None  # Will be initialized when node details are available
+        
         # Initialize quantum consensus if genesis key is provided
         if genesis_public_key:
             self.genesis_public_key = genesis_public_key
             self.quantum_consensus = QuantumAnnealingConsensus()
+            
+            # Auto-initialize gossip node if we have a genesis key
+            try:
+                self.initialize_gossip_node(
+                    public_key=genesis_public_key,
+                    ip_address="127.0.0.1",
+                    gossip_port=12000
+                )
+                logger.info("Gossip protocol auto-initialized with genesis key")
+            except Exception as e:
+                logger.warning(f"Failed to auto-initialize gossip protocol: {e}")
         else:
             self.genesis_public_key = None
             self.quantum_consensus = None
@@ -250,10 +266,23 @@ class Blockchain:
             self.account_model.update_balance(receiver, amount)
 
     def next_block_proposer(self):
-        """Get the next block proposer using leader schedule"""
+        """Get the next block proposer using leader schedule with gossip fallback"""
         current_leader = self.leader_schedule.get_current_leader()
         if current_leader:
             return current_leader
+        
+        # Try to get leader schedule from gossip network if local schedule fails
+        if self.gossip_node:
+            try:
+                gossip_schedule = self.get_gossip_leader_schedule()
+                if gossip_schedule:
+                    current_slot = self.leader_schedule.get_current_slot()
+                    gossip_leader = gossip_schedule.get(current_slot)
+                    if gossip_leader:
+                        logger.info(f"Using leader from gossip network: {gossip_leader[:20]}...")
+                        return gossip_leader
+            except Exception as e:
+                logger.warning(f"Failed to get leader from gossip network: {e}")
         
         # Fallback to quantum consensus if available and leader schedule fails
         if self.quantum_consensus:
@@ -292,6 +321,18 @@ class Blockchain:
         """
         if self.quantum_consensus:
             self.leader_schedule.update_schedule(self.quantum_consensus)
+            
+            # Automatically publish updated leader schedule to gossip network
+            if self.gossip_node:
+                try:
+                    current_epoch = self.leader_schedule.current_epoch
+                    # Get current schedule - use current_schedule directly
+                    slot_leaders = self.leader_schedule.current_schedule
+                    if slot_leaders:
+                        self.publish_leader_schedule_to_gossip(current_epoch, slot_leaders)
+                        logger.debug(f"Auto-published leader schedule to gossip network: epoch {current_epoch}, {len(slot_leaders)} slots")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-publish leader schedule to gossip: {e}")
             
             # Clean up expired Gulf Stream forwards
             self.gulf_stream_node.cleanup_expired_data()
@@ -637,6 +678,11 @@ class Blockchain:
         """Get quantum annealing consensus metrics for monitoring and analysis"""
         consensus_metrics = self.quantum_consensus.get_consensus_metrics()
         
+        # Include gossip protocol metrics if available
+        gossip_metrics = {}
+        if self.gossip_node:
+            gossip_metrics = self.get_gossip_stats()
+        
         return {
             "consensus_type": "Quantum Annealing",
             "total_nodes": consensus_metrics.get('total_nodes', 0),
@@ -659,7 +705,8 @@ class Blockchain:
             "cache_stats": {
                 "known_participants_cached": len(self._known_participants_cache),
                 "genesis_key_cached": self._genesis_key_cache is not None
-            }
+            },
+            "gossip_protocol": gossip_metrics  # Include gossip network status
         }
 
     def clear_validation_caches(self):
@@ -667,3 +714,252 @@ class Blockchain:
         self._known_participants_cache.clear()
         self._genesis_key_cache = None
         logger.info("Validation caches cleared")
+    
+    def initialize_gossip_node(self, public_key: str, ip_address: str = "127.0.0.1", 
+                              gossip_port: int = 12000, tpu_port: int = 13000, tvu_port: int = 14000):
+        """
+        Initialize the gossip protocol node for leader schedule distribution.
+        
+        Args:
+            public_key: This node's public key
+            ip_address: IP address for gossip communication
+            gossip_port: Port for gossip protocol (12000-12999)
+            tpu_port: Transaction Processing Unit port (13000-13999)
+            tvu_port: Transaction Validation Unit port (14000-14999)
+        """
+        try:
+            self.gossip_node = GossipNode(
+                public_key=public_key,
+                ip_address=ip_address,
+                gossip_port=gossip_port,
+                tpu_port=tpu_port,
+                tvu_port=tvu_port,
+                config=GossipConfig(
+                    push_interval_ms=1000,  # Push every second
+                    pull_interval_ms=2000,  # Pull every 2 seconds
+                    prune_interval_ms=30000,  # Prune every 30 seconds
+                    max_active_peers=50     # Reasonable peer limit
+                )
+            )
+            logger.info(f"Gossip node initialized: {public_key[:20]}... on {ip_address}:{gossip_port}")
+            
+            # Auto-discover and connect to other running nodes (with slight delay)
+            import threading
+            def delayed_discovery():
+                time.sleep(5)  # Wait 5 seconds for other nodes to start
+                self._auto_discover_gossip_peers(gossip_port, tpu_port, tvu_port)
+                
+                # Also register this node with the consensus system
+                if self.quantum_consensus:
+                    self.quantum_consensus.register_node(public_key, public_key)
+                    logger.info(f"Registered this node with consensus system: {public_key[:20]}...")
+            
+            discovery_thread = threading.Thread(target=delayed_discovery, daemon=True)
+            discovery_thread.start()
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize gossip node: {e}")
+            self.gossip_node = None
+    
+    def _auto_discover_gossip_peers(self, my_gossip_port: int, my_tpu_port: int, my_tvu_port: int):
+        """Auto-discover other running blockchain nodes and add as gossip bootstrap peers"""
+        try:
+            import requests
+            import socket
+            
+            discovered_peers = 0
+            max_discovery_attempts = 10  # Check up to 10 other potential nodes
+            
+            logger.info("Auto-discovering gossip peers...")
+            
+            # Calculate the base ports based on this node's ports
+            # If this node has gossip_port 12003, then base is 12000, and this is node 4
+            base_gossip_port = 12000
+            my_node_index = my_gossip_port - base_gossip_port
+            
+            for i in range(max_discovery_attempts):
+                if i == my_node_index:
+                    continue  # Skip self
+                
+                peer_gossip_port = base_gossip_port + i
+                peer_tpu_port = 13000 + i
+                peer_tvu_port = 14000 + i
+                peer_api_port = 11000 + i
+                
+                try:
+                    # Test if the peer's API is accessible (indicates running node)
+                    response = requests.get(f"http://localhost:{peer_api_port}/api/v1/blockchain/quantum-metrics/", 
+                                          timeout=2)
+                    if response.status_code == 200:
+                        data = response.json()
+                        node_scores = data.get('node_scores', {})
+                        if node_scores:
+                            # Get the peer's public key
+                            peer_public_key = list(node_scores.keys())[0]
+                            
+                            # Add as gossip bootstrap peer
+                            peer_contact = ContactInfo(
+                                public_key=peer_public_key,
+                                ip_address="localhost",
+                                gossip_port=peer_gossip_port,
+                                tpu_port=peer_tpu_port,
+                                tvu_port=peer_tvu_port,
+                                wallclock=time.time()
+                            )
+                            
+                            if self.gossip_node:
+                                self.gossip_node.add_bootstrap_peer(peer_contact)
+                                discovered_peers += 1
+                                logger.info(f"Added gossip bootstrap peer: Node {i+1} at {peer_gossip_port}")
+                                
+                                # Also register the discovered node with consensus system
+                                if self.quantum_consensus:
+                                    self.quantum_consensus.register_node(peer_public_key, peer_public_key)
+                                    logger.info(f"Registered discovered node with consensus: Node {i+1}")
+                                
+                                # Limit bootstrap peers to prevent overwhelming
+                                if discovered_peers >= 5:
+                                    break
+                
+                except Exception:
+                    # Peer not accessible, continue to next
+                    continue
+            
+            if discovered_peers > 0:
+                logger.info(f"Gossip auto-discovery complete: {discovered_peers} bootstrap peers added")
+            else:
+                logger.info("No other running nodes found for gossip bootstrap")
+                
+        except Exception as e:
+            logger.warning(f"Gossip peer auto-discovery failed: {e}")
+    
+    
+    async def start_gossip_node(self):
+        """Start the gossip protocol node"""
+        if self.gossip_node:
+            try:
+                await self.gossip_node.start()
+                logger.info("Gossip node started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start gossip node: {e}")
+        else:
+            logger.warning("Cannot start gossip node - not initialized")
+    
+    async def stop_gossip_node(self):
+        """Stop the gossip protocol node"""
+        if self.gossip_node:
+            try:
+                await self.gossip_node.stop()
+                logger.info("Gossip node stopped successfully")
+            except Exception as e:
+                logger.error(f"Failed to stop gossip node: {e}")
+    
+    def add_gossip_peer(self, peer_public_key: str, ip_address: str, gossip_port: int, 
+                       tpu_port: int, tvu_port: int):
+        """Add a peer to the gossip network"""
+        if self.gossip_node:
+            peer_contact = ContactInfo(
+                public_key=peer_public_key,
+                ip_address=ip_address,
+                gossip_port=gossip_port,
+                tpu_port=tpu_port,
+                tvu_port=tvu_port,
+                wallclock=time.time()
+            )
+            self.gossip_node.add_bootstrap_peer(peer_contact)
+            logger.info(f"Added gossip peer: {peer_public_key[:20]}... at {ip_address}:{gossip_port}")
+        else:
+            logger.warning("Cannot add gossip peer - gossip node not initialized")
+    
+    def publish_leader_schedule_to_gossip(self, epoch: int, slot_leaders: Dict[int, str]):
+        """Publish leader schedule through gossip protocol"""
+        if self.gossip_node:
+            try:
+                self.gossip_node.publish_leader_schedule(epoch, slot_leaders)
+                logger.info(f"Published leader schedule for epoch {epoch} with {len(slot_leaders)} slots")
+            except Exception as e:
+                logger.error(f"Failed to publish leader schedule to gossip: {e}")
+        else:
+            logger.warning("Cannot publish leader schedule - gossip node not initialized")
+    
+    def get_gossip_leader_schedule(self) -> Optional[Dict[int, str]]:
+        """Get current leader schedule from gossip protocol"""
+        if self.gossip_node:
+            try:
+                schedule = self.gossip_node.get_current_leader_schedule()
+                if schedule:
+                    logger.debug(f"Retrieved leader schedule from gossip: {len(schedule)} slots")
+                return schedule
+            except Exception as e:
+                logger.error(f"Failed to get leader schedule from gossip: {e}")
+                return None
+        else:
+            logger.warning("Cannot get leader schedule - gossip node not initialized")
+            return None
+    
+    def get_gossip_stats(self) -> Dict:
+        """Get gossip protocol statistics"""
+        if self.gossip_node:
+            try:
+                return {
+                    'gossip_stats': self.gossip_node.stats,
+                    'crds_size': len(getattr(self.gossip_node.crds, 'table', {})),
+                    'active_peers': len(self.gossip_node.active_gossip_set),
+                    'known_peers': len(self.gossip_node.known_peers),
+                    'pruned_peers': len(self.gossip_node.pruned_peers)
+                }
+            except Exception as e:
+                logger.error(f"Failed to get gossip stats: {e}")
+                return {'error': f'Failed to get stats: {e}'}
+        else:
+            return {'error': 'Gossip node not initialized'}
+    
+    def get_integration_status(self) -> Dict:
+        """Get comprehensive status of all integrated blockchain components"""
+        return {
+            'blockchain_core': {
+                'blocks': len(self.blocks),
+                'genesis_key_available': bool(self.genesis_public_key),
+                'max_block_size': self.max_block_size_bytes
+            },
+            'quantum_consensus': {
+                'initialized': bool(self.quantum_consensus),
+                'metrics': self.get_quantum_metrics() if self.quantum_consensus else None
+            },
+            'leader_schedule': {
+                'current_epoch': self.leader_schedule.current_epoch,
+                'current_slot': self.leader_schedule.get_current_slot(),
+                'current_leader': self.leader_schedule.get_current_leader(),
+                'schedule_size': len(self.leader_schedule.current_schedule),
+                'next_schedule_size': len(self.leader_schedule.next_schedule)
+            },
+            'poh_sequencer': {
+                'initialized': bool(self.poh_sequencer),
+                'current_sequence_length': len(self.poh_sequencer.get_sequence()) if self.poh_sequencer else 0
+            },
+            'gulf_stream': {
+                'initialized': bool(self.gulf_stream_node),
+                'status': self.gulf_stream_node.get_gulf_stream_status() if self.gulf_stream_node else None
+            },
+            'turbine_protocol': {
+                'initialized': bool(self.turbine_protocol),
+                'validators_registered': getattr(self.turbine_protocol, 'validators', {}) if self.turbine_protocol else 0
+            },
+            'gossip_protocol': {
+                'initialized': bool(self.gossip_node),
+                'auto_integrated': bool(self.gossip_node),  # Now auto-integrated
+                'stats': self.get_gossip_stats() if self.gossip_node else None
+            },
+            'integration_health': {
+                'all_components_initialized': all([
+                    bool(self.quantum_consensus),
+                    bool(self.poh_sequencer),
+                    bool(self.gulf_stream_node),
+                    bool(self.turbine_protocol),
+                    bool(self.gossip_node)
+                ]),
+                'gossip_auto_publishes': bool(self.gossip_node),
+                'leader_schedule_integrated': True,
+                'metrics_integrated': True
+            }
+        }

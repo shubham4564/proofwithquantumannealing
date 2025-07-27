@@ -21,6 +21,12 @@ class Node:
         self.ip = ip
         self.port = port
         
+        # Calculate gossip protocol ports based on P2P port
+        # P2P: 10000-10099, Gossip: 12000-12999, TPU: 13000-13999, TVU: 14000-14999
+        self.gossip_port = 12000 + (port - 10000) if port >= 10000 else 12000
+        self.tpu_port = 13000 + (port - 10000) if port >= 10000 else 13000
+        self.tvu_port = 14000 + (port - 10000) if port >= 10000 else 14000
+        
         # Legacy transaction pool for backward compatibility
         self.transaction_pool = TransactionPool()
         
@@ -30,7 +36,24 @@ class Node:
         self.wallet = Wallet()
         if key is not None:
             self.wallet.from_key(key)
-        self.blockchain = Blockchain()
+            
+        # Initialize blockchain with this node's public key for gossip integration
+        self.blockchain = Blockchain(genesis_public_key=self.wallet.public_key_string())
+        
+        # Initialize gossip node with this node's specific ports (after blockchain creation)
+        if self.blockchain.gossip_node:
+            # Update gossip node with node-specific IP and ports
+            try:
+                self.blockchain.initialize_gossip_node(
+                    public_key=self.wallet.public_key_string(),
+                    ip_address=self.ip,
+                    gossip_port=self.gossip_port,
+                    tpu_port=self.tpu_port,
+                    tvu_port=self.tvu_port
+                )
+                logger.info(f"Gossip node reconfigured for node-specific ports: gossip={self.gossip_port}, tpu={self.tpu_port}, tvu={self.tvu_port}")
+            except Exception as e:
+                logger.warning(f"Failed to reconfigure gossip node ports: {e}")
         
         # Initialize Gulf Stream for transaction forwarding
         self.gulf_stream = GulfStreamProcessor(self.blockchain.leader_schedule)
@@ -47,18 +70,54 @@ class Node:
 
     def start_p2p(self, enhanced=True):
         """
-        Start P2P communication system.
+        Start P2P communication system with integrated gossip protocol.
         
         Args:
             enhanced (bool): If True, use Bitcoin-style enhanced P2P with INV/GETDATA/TX.
                            If False, use legacy direct broadcast system.
         """
         if enhanced:
-            logger.info("Starting enhanced Bitcoin-style P2P system")
+            logger.info("Starting enhanced Bitcoin-style P2P system with gossip protocol")
             self.start_p2p_enhanced()
         else:
-            logger.info("Starting legacy P2P system")
+            logger.info("Starting legacy P2P system with gossip protocol")
             self.start_p2p_legacy()
+        
+        # Start gossip protocol for leader schedule distribution
+        self.start_gossip_protocol()
+    
+    def start_gossip_protocol(self):
+        """Start the gossip protocol for leader schedule distribution"""
+        try:
+            if not self.blockchain.gossip_node:
+                logger.warning("Gossip node not initialized, cannot start")
+                return
+            
+            # Start gossip node asynchronously
+            import asyncio
+            import threading
+            
+            def start_gossip_async():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.blockchain.start_gossip_node())
+                except Exception as e:
+                    logger.error(f"Failed to start gossip node: {e}")
+            
+            self.gossip_thread = threading.Thread(target=start_gossip_async, daemon=True)
+            self.gossip_thread.start()
+            
+            logger.info({
+                "message": "Gossip protocol started",
+                "gossip_port": self.gossip_port,
+                "tpu_port": self.tpu_port,
+                "tvu_port": self.tvu_port,
+                "public_key": self.wallet.public_key_string()[:20] + "..."
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to start gossip protocol: {e}")
     
     def start_p2p_legacy(self):
         """Start the legacy P2P communication system (direct broadcast)"""
@@ -101,6 +160,36 @@ class Node:
     def get_slot_info(self):
         """Get current slot timing and production information"""
         return self.slot_producer.get_slot_info()
+    
+    def get_node_status(self):
+        """Get comprehensive node status including gossip protocol"""
+        status = {
+            'node_info': {
+                'ip': self.ip,
+                'p2p_port': self.port,
+                'gossip_port': self.gossip_port,
+                'tpu_port': self.tpu_port,
+                'tvu_port': self.tvu_port,
+                'public_key': self.wallet.public_key_string()[:30] + "..."
+            },
+            'p2p_status': {
+                'active': bool(self.p2p),
+                'connected_peers': len(self.p2p.all_nodes) if self.p2p else 0,
+                'peer_health': len([p for p in self.peer_health.values() if time.time() - p < 300])  # Active in last 5 min
+            },
+            'blockchain_status': self.blockchain.get_integration_status(),
+            'transaction_pools': {
+                'legacy_pool': len(self.transaction_pool.transactions),
+                'mempool': len(self.mempool.transactions),
+                'gulf_stream': self.blockchain.gulf_stream_node.get_gulf_stream_status() if self.blockchain.gulf_stream_node else None
+            },
+            'gossip_protocol': self.blockchain.get_gossip_stats(),
+            'slot_production': {
+                'enabled': hasattr(self, 'slot_producer') and self.slot_producer.is_running if hasattr(self.slot_producer, 'is_running') else False,
+                'slot_info': self.get_slot_info()
+            }
+        }
+        return status
 
     def start_node_api(self, api_port):
         self.api = NodeAPI()
@@ -109,18 +198,19 @@ class Node:
 
     def handle_transaction(self, transaction, from_api=False, source_peer=None):
         """
-        Handle incoming transaction with Bitcoin-style verification and propagation.
+        Handle incoming transaction with Gulf Stream integration.
         
         Args:
             transaction: Transaction object to process
             from_api: True if transaction came from API, False if from P2P
             source_peer: Peer ID that sent the transaction (for P2P tracking)
         """
-        # Register node in quantum consensus
-        self.blockchain.quantum_consensus.register_node(
-            self.wallet.public_key_string(), 
-            self.wallet.public_key_string()
-        )
+        # Register node in quantum consensus if available
+        if self.blockchain and self.blockchain.quantum_consensus:
+            self.blockchain.quantum_consensus.register_node(
+                self.wallet.public_key_string(), 
+                self.wallet.public_key_string()
+            )
         
         # 1. Verification: Check transaction legitimacy
         data = transaction.payload()
@@ -156,49 +246,35 @@ class Node:
             })
             return
 
-        # 2. Gulf Stream: Forward to leaders instead of mempool
-        upcoming_leaders = self.blockchain.get_upcoming_leaders(5)
-        forwarded = self.gulf_stream.forward_transaction(transaction, upcoming_leaders)
-        
-        # Also add to legacy pool for compatibility
-        self.transaction_pool.add_transaction(transaction)
-        
-        if forwarded:
+        # 2. Submit to blockchain's Gulf Stream system
+        try:
+            result = self.blockchain.submit_transaction(transaction)
+            
             logger.info({
-                "message": "Transaction forwarded via Gulf Stream",
+                "message": "Transaction submitted via Gulf Stream",
                 "tx_hash": tx_hash[:16] + "...",
-                "leaders_forwarded": len(upcoming_leaders),
-                "legacy_pool_size": len(self.transaction_pool.transactions),
+                "transaction_id": result.get('transaction_id', tx_hash[:8]),
                 "transaction_type": transaction.type,
                 "sender": transaction.sender_public_key[:20] + "...",
                 "receiver": transaction.receiver_public_key[:20] + "...",
-                "source": "API" if from_api else f"P2P({source_peer[:10]}...)" if source_peer else "P2P"
+                "source": "API" if from_api else f"P2P({source_peer[:10]}...)" if source_peer else "P2P",
+                "gulf_stream_stats": result.get('gulf_stream_status', {}).get('forwarding_stats', {})
             })
             
-            # 3. Gulf Stream Protocol: Forward to current and upcoming leaders
-            if from_api:
-                # For API transactions, forward immediately via Gulf Stream
-                self._forward_transaction_to_leaders(transaction, upcoming_leaders)
-            else:
-                # For P2P transactions, update Gulf Stream forwarding state
-                self.gulf_stream.update_forwarding_state(transaction)
-        else:
-            # Fallback to traditional mempool if Gulf Stream fails
-            added_to_mempool = self.mempool.add_transaction(transaction, source_peer)
+        except Exception as e:
+            logger.error({
+                "message": "Gulf Stream submission failed, using fallback",
+                "error": str(e),
+                "tx_hash": tx_hash[:16] + "..."
+            })
             
-            if added_to_mempool:
-                logger.info({
-                    "message": "Transaction stored in mempool (Gulf Stream fallback)",
-                    "tx_hash": tx_hash[:16] + "...",
-                    "mempool_size": len(self.mempool.transactions),
-                    "source": "API" if from_api else f"P2P({source_peer[:10]}...)" if source_peer else "P2P"
-                })
-                
-                # Use traditional gossip as fallback
-                if from_api:
-                    self._announce_transaction_to_peers(tx_hash)
-                else:
-                    self._gossip_transaction_to_peers(tx_hash, exclude_peer=source_peer)
+            # Fallback to legacy pools
+            self.transaction_pool.add_transaction(transaction)
+            self.mempool.add_transaction(transaction, source_peer)
+            
+            # Use traditional gossip as fallback
+            if from_api:
+                self._announce_transaction_to_peers(tx_hash)
 
         # Check if block proposal is needed
         block_proposal_required = self.transaction_pool.forging_required()  # Method name kept for compatibility
