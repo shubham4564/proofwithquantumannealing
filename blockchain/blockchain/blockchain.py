@@ -50,6 +50,10 @@ class Blockchain:
             self.genesis_public_key = genesis_public_key
             self.quantum_consensus = QuantumAnnealingConsensus()
             
+            # Register the genesis node in quantum consensus immediately
+            self.quantum_consensus.register_node(genesis_public_key, genesis_public_key)
+            logger.info(f"Genesis node registered in quantum consensus: {genesis_public_key[:20]}...")
+            
             # Auto-initialize gossip node if we have a genesis key
             try:
                 self.initialize_gossip_node(
@@ -60,6 +64,9 @@ class Blockchain:
                 logger.info("Gossip protocol auto-initialized with genesis key")
             except Exception as e:
                 logger.warning(f"Failed to auto-initialize gossip protocol: {e}")
+                
+            # Start leader selection process immediately after initialization
+            self._start_initial_leader_selection()
         else:
             self.genesis_public_key = None
             self.quantum_consensus = None
@@ -83,6 +90,67 @@ class Blockchain:
             genesis_block = Block([], forger, 0, "")
             self.blocks.append(genesis_block)
             logger.info(f"Genesis block created with proposer: {forger[:20]}...")
+    
+    def _start_initial_leader_selection(self):
+        """
+        Start the leader selection process immediately when the network initializes.
+        This ensures leaders are selected and scheduled as soon as nodes come online.
+        """
+        import threading
+        
+        def initialize_leader_schedule():
+            time.sleep(2)  # Brief delay to ensure initialization is complete
+            
+            try:
+                logger.info("Starting initial leader selection process...")
+                
+                # Generate initial leader schedule
+                self.update_leader_schedule()
+                
+                # Start continuous leader schedule updates
+                self._start_continuous_leader_updates()
+                
+                logger.info("Initial leader selection process started successfully")
+                
+            except Exception as e:
+                logger.error(f"Failed to start initial leader selection: {e}")
+        
+        # Start leader selection in background thread
+        leader_thread = threading.Thread(target=initialize_leader_schedule, daemon=True)
+        leader_thread.start()
+    
+    def _start_continuous_leader_updates(self):
+        """
+        Start continuous leader schedule updates to maintain the schedule.
+        Updates every 30 seconds to ensure leaders are always scheduled in advance.
+        """
+        import threading
+        
+        def continuous_updates():
+            while True:
+                try:
+                    time.sleep(30)  # Update every 30 seconds
+                    
+                    # Update leader schedule
+                    self.update_leader_schedule()
+                    
+                    # Check if we need to advance to next epoch
+                    current_time = time.time()
+                    epoch_elapsed = current_time - self.leader_schedule.epoch_start_time
+                    
+                    # If we're 90% through current epoch, prepare next epoch
+                    if epoch_elapsed >= (self.leader_schedule.epoch_duration_seconds * 0.9):
+                        logger.info("Approaching epoch end, preparing next epoch schedule...")
+                        self.update_leader_schedule()
+                    
+                except Exception as e:
+                    logger.error(f"Error in continuous leader updates: {e}")
+                    time.sleep(10)  # Shorter retry interval on error
+        
+        # Start continuous updates in background thread
+        update_thread = threading.Thread(target=continuous_updates, daemon=True)
+        update_thread.start()
+        logger.info("Continuous leader schedule updates started")
     
     def set_max_block_size(self, size_bytes):
         """
@@ -753,6 +821,10 @@ class Blockchain:
                 if self.quantum_consensus:
                     self.quantum_consensus.register_node(public_key, public_key)
                     logger.info(f"Registered this node with consensus system: {public_key[:20]}...")
+                    
+                    # Trigger leader schedule update after node registration
+                    self.update_leader_schedule()
+                    logger.info("Updated leader schedule after node registration")
             
             discovery_thread = threading.Thread(target=delayed_discovery, daemon=True)
             discovery_thread.start()
@@ -816,6 +888,10 @@ class Blockchain:
                                 if self.quantum_consensus:
                                     self.quantum_consensus.register_node(peer_public_key, peer_public_key)
                                     logger.info(f"Registered discovered node with consensus: Node {i+1}")
+                                    
+                                    # Trigger leader schedule update when new node is discovered
+                                    self.update_leader_schedule()
+                                    logger.info(f"Updated leader schedule after discovering new node")
                                 
                                 # Limit bootstrap peers to prevent overwhelming
                                 if discovered_peers >= 5:

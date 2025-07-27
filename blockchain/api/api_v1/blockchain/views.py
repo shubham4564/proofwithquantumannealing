@@ -150,3 +150,144 @@ async def gossip_status(request: Request):
             for peer_key, contact in list(gossip_node.known_peers.items())[:10]  # Show max 10 peers
         ]
     }
+
+
+@router.get("/leader/current/", name="Get current leader information")
+async def current_leader_info(request: Request):
+    """Get detailed information about the current leader and slot timing"""
+    node = request.app.state.node
+    
+    try:
+        # Get current leader info from blockchain
+        leader_info = node.blockchain.get_current_leader_info()
+        
+        # Get additional blockchain state for context
+        quantum_metrics = node.blockchain.get_quantum_metrics()
+        
+        return {
+            "current_leader_info": leader_info,
+            "consensus_context": {
+                "total_nodes": quantum_metrics.get("total_nodes", 0),
+                "active_nodes": quantum_metrics.get("active_nodes", 0),
+                "gossip_peers": quantum_metrics.get("gossip_protocol", {}).get("active_peers", 0)
+            },
+            "node_public_key": getattr(node, 'public_key', 'unknown')[:30] + "..." if hasattr(node, 'public_key') else "unknown",
+            "am_i_current_leader": node.blockchain.am_i_current_leader(getattr(node, 'public_key', '')) if hasattr(node, 'public_key') else False,
+            "timestamp": leader_info.get("slot_start_time", 0)
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Failed to get current leader info: {str(e)}",
+            "fallback_proposer": node.blockchain.next_block_proposer() if hasattr(node.blockchain, 'next_block_proposer') else None
+        }
+
+
+@router.get("/leader/upcoming/", name="Get upcoming leaders schedule")
+async def upcoming_leaders(request: Request):
+    """Get information about upcoming leaders for Gulf Stream and transaction forwarding"""
+    node = request.app.state.node
+    
+    try:
+        # Get current leader info which includes upcoming leaders
+        leader_info = node.blockchain.get_current_leader_info()
+        upcoming_targets = leader_info.get("upcoming_leaders", [])
+        
+        # Check if this node is an upcoming leader
+        my_public_key = getattr(node, 'public_key', '')
+        upcoming_leadership = None
+        if my_public_key:
+            upcoming_leadership = node.blockchain.am_i_upcoming_leader(my_public_key, within_seconds=300)  # Next 5 minutes
+        
+        return {
+            "upcoming_leaders": upcoming_targets,
+            "schedule_size": len(upcoming_targets),
+            "my_upcoming_leadership": upcoming_leadership,
+            "leader_schedule_epoch": node.blockchain.leader_schedule.current_epoch,
+            "slot_duration_seconds": node.blockchain.leader_schedule.slot_duration_seconds,
+            "current_slot": node.blockchain.leader_schedule.get_current_slot(),
+            "schedule_advance_time": 120  # Leaders known 2 minutes in advance
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Failed to get upcoming leaders: {str(e)}",
+            "upcoming_leaders": [],
+            "schedule_size": 0
+        }
+
+
+@router.get("/leader/schedule/", name="Get full leader schedule")
+async def leader_schedule(request: Request):
+    """Get the complete leader schedule for the current and next epoch"""
+    node = request.app.state.node
+    
+    try:
+        leader_schedule = node.blockchain.leader_schedule
+        
+        # Get schedules in a readable format
+        current_schedule_readable = {}
+        for slot, leader in leader_schedule.current_schedule.items():
+            current_schedule_readable[str(slot)] = leader[:30] + "..." if leader else "None"
+        
+        next_schedule_readable = {}
+        for slot, leader in leader_schedule.next_schedule.items():
+            next_schedule_readable[str(slot)] = leader[:30] + "..." if leader else "None"
+        
+        return {
+            "current_epoch": leader_schedule.current_epoch,
+            "current_schedule": current_schedule_readable,
+            "current_schedule_size": len(leader_schedule.current_schedule),
+            "next_epoch": leader_schedule.current_epoch + 1,
+            "next_schedule": next_schedule_readable,
+            "next_schedule_size": len(leader_schedule.next_schedule),
+            "slot_duration_seconds": leader_schedule.slot_duration_seconds,
+            "epoch_start_time": leader_schedule.epoch_start_time,
+            "current_slot": leader_schedule.get_current_slot(),
+            "slots_per_epoch": leader_schedule.slots_per_epoch
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Failed to get leader schedule: {str(e)}",
+            "current_epoch": 0,
+            "current_schedule": {},
+            "next_schedule": {}
+        }
+
+
+@router.get("/leader/quantum-selection/", name="Get quantum consensus leader selection details")
+async def quantum_leader_selection(request: Request):
+    """Get detailed quantum annealing consensus leader selection information"""
+    node = request.app.state.node
+    
+    try:
+        quantum_metrics = node.blockchain.get_quantum_metrics()
+        
+        # Try to get the next block proposer using quantum consensus
+        next_proposer = None
+        if node.blockchain.quantum_consensus:
+            try:
+                last_block_hash = node.blockchain.blocks[-1].payload() if node.blockchain.blocks else "genesis"
+                next_proposer = node.blockchain.quantum_consensus.select_representative_node(
+                    str(last_block_hash)
+                )
+            except Exception as e:
+                next_proposer = f"Selection failed: {str(e)}"
+        
+        return {
+            "quantum_consensus_enabled": bool(node.blockchain.quantum_consensus),
+            "next_quantum_proposer": next_proposer[:30] + "..." if next_proposer and len(str(next_proposer)) > 30 else next_proposer,
+            "node_scores": quantum_metrics.get("node_scores", {}),
+            "probe_statistics": quantum_metrics.get("probe_statistics", {}),
+            "protocol_parameters": quantum_metrics.get("protocol_parameters", {}),
+            "scoring_weights": quantum_metrics.get("scoring_weights", {}),
+            "total_registered_nodes": quantum_metrics.get("total_nodes", 0),
+            "active_nodes": quantum_metrics.get("active_nodes", 0)
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Failed to get quantum leader selection details: {str(e)}",
+            "quantum_consensus_enabled": False
+        }

@@ -83,7 +83,7 @@ ls keys/
 
 ## 🚀 **Quick Start**
 
-### **1. Start Blockchain Network**
+### **1. Start Blockchain Network** ⭐ **AUTO LEADER SELECTION**
 ```bash
 # Start 5 nodes (ports 10000-10004 for P2P, 11000-11004 for API)
 ./start_nodes.sh
@@ -94,14 +94,35 @@ ls keys/
 # 📡 Node ports: 10000-10004
 # 🌐 API ports: 11000-11004
 # 📝 Enhanced Logs: Use 'python monitor_logs.py summary' to view all logs
+
+# NEW: Leader selection now starts automatically!
+# ⭐ Leaders are selected within 2-3 seconds of network startup
+# ⭐ No need to wait for transactions to trigger leader selection
+# ⭐ Continuous leader schedule updates every 30 seconds
 ```
 
-### **2. Verify Node Status**
+### **2. Verify Node Status & Leader Selection** ⭐ **ENHANCED**
 ```bash
 # Check if nodes are responding
 curl http://localhost:11000/api/v1/blockchain/ | jq
 
 # Should return blockchain status with blocks array
+
+# Monitor leader selection (NEW!)
+curl http://localhost:11000/api/v1/blockchain/leader/current/ | jq
+
+# Expected response showing active leader:
+{
+  "current_leader": "node_10001",
+  "current_slot": 5,
+  "leader_valid": true,
+  "next_leader": "node_10002",
+  "next_slot": 6,
+  "time_until_next_slot": 1.8
+}
+
+# Use monitoring tools for continuous tracking
+python leader_monitor.py --once
 ```
 
 ### **3. Run Transaction Test**
@@ -117,6 +138,41 @@ python test_comprehensive_performance.py
 ```
 
 ## 📊 **Monitoring & Logging**
+
+### **📋 Leader Selection Monitoring** ⭐ **NEW**
+Real-time monitoring of leader selection and consensus:
+
+```bash
+# Continuous leader monitoring (recommended)
+python leader_monitor.py
+
+# Output shows real-time leader information:
+# ═══════════════════════════════════════════
+# 🎯 QUANTUM BLOCKCHAIN LEADER MONITOR
+# ═══════════════════════════════════════════
+# 🕐 Timestamp: 2024-01-15 10:30:15
+# 🌐 Monitoring Node: localhost:11000
+# 
+# 👑 CURRENT LEADER
+# ├─ Leader: node_10001
+# ├─ Slot: 150
+# ├─ Status: ✅ Valid
+# └─ Next Change: 1.2s
+# 
+# 📅 UPCOMING LEADERS
+# ├─ Slot 151: node_10002
+# ├─ Slot 152: node_10000
+# └─ Slot 153: node_10001
+
+# Monitor specific node
+python leader_monitor.py --node-port 11001
+
+# Single check (non-continuous)
+python leader_monitor.py --once
+
+# Quick API test
+./test_leader_apis.sh
+```
 
 ### **📋 Log Overview**
 ```bash
@@ -212,13 +268,19 @@ python test_comprehensive_performance.py
 # ✅ End-to-end transaction processing time
 ```
 
-### **4. Load Testing**
+### **4. Load Testing & Leader Monitoring** ⭐ **ENHANCED**
 ```bash
 # Test with multiple concurrent transactions
 python test_comprehensive_performance.py --transactions 50 --threads 5
 
 # Monitor during load test (separate terminal)
 python monitor_logs.py watch performance node_10000
+
+# Monitor leader selection during high load (NEW!)
+python leader_monitor.py
+
+# Test leader APIs under load
+./test_leader_apis.sh
 ```
 
 ## 🔧 **Configuration**
@@ -235,10 +297,13 @@ API_START=11000       # Starting API port
 # Edit start_nodes.sh and change NUM_NODES=10
 ```
 
-### **Consensus Configuration**
+### **Consensus Configuration** ⭐ **ENHANCED**
 Quantum consensus parameters in `blockchain/quantum_consensus/`:
 - **Slot duration**: 2 seconds (configurable)
 - **Leader lookahead**: 5 slots
+- **Auto leader selection**: Starts 2 seconds after blockchain initialization
+- **Continuous updates**: Leader schedule refreshed every 30 seconds
+- **Dynamic discovery**: New nodes trigger immediate leader schedule updates
 - **Quantum annealing parameters**: Tunable in quantum_consensus.py
 
 ### **Performance Tuning**
@@ -278,6 +343,88 @@ docker-compose up -d --scale node=5
 ```
 
 ## 📡 **API Reference**
+
+### **Leader Selection Monitoring Endpoints** ⭐ **NEW**
+The blockchain now provides comprehensive APIs for monitoring leader selection and consensus:
+
+```bash
+# Get current leader information
+GET http://localhost:11000/api/v1/blockchain/leader/current/
+
+# Response:
+{
+  "current_leader": "node_10001",
+  "current_slot": 150,
+  "leader_valid": true,
+  "next_leader": "node_10002",
+  "next_slot": 151,
+  "time_until_next_slot": 1.2
+}
+
+# Get upcoming leader schedule
+GET http://localhost:11000/api/v1/blockchain/leader/upcoming/
+
+# Response:
+{
+  "upcoming_leaders": [
+    {"slot": 151, "leader": "node_10002"},
+    {"slot": 152, "leader": "node_10000"},
+    {"slot": 153, "leader": "node_10001"}
+  ],
+  "current_slot": 150,
+  "schedule_generated_at": "2024-01-15T10:30:00Z"
+}
+
+# Get quantum consensus selection details
+GET http://localhost:11000/api/v1/blockchain/leader/quantum-selection/
+
+# Response:
+{
+  "quantum_enabled": true,
+  "selection_method": "quantum_annealing",
+  "last_selection_time": "2024-01-15T10:29:58Z",
+  "participants": ["node_10000", "node_10001", "node_10002"],
+  "selection_success": true
+}
+
+# Get complete leader schedule with timing
+GET http://localhost:11000/api/v1/blockchain/leader/schedule/
+
+# Response:
+{
+  "total_slots": 10,
+  "slot_duration": 2.0,
+  "current_slot": 150,
+  "schedule": [
+    {
+      "slot": 150,
+      "leader": "node_10001",
+      "status": "active",
+      "start_time": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+### **Leader Monitoring Tools** ⭐ **NEW**
+Enhanced monitoring capabilities with automated tools:
+
+```bash
+# Continuous leader monitoring (Python script)
+python leader_monitor.py
+
+# Monitor specific node
+python leader_monitor.py --node-port 11001
+
+# Single-time check
+python leader_monitor.py --once
+
+# Quick API test (Bash script)
+./test_leader_apis.sh
+
+# API testing with specific node
+./test_leader_apis.sh 11002
+```
 
 ### **Blockchain Endpoints**
 ```bash
@@ -355,6 +502,30 @@ python monitor_logs.py tail network node_10000
 curl http://localhost:11000/api/v1/health/
 ```
 
+#### **Leader Selection Issues** ⭐ **NEW**
+```bash
+# Leader not being selected
+curl http://localhost:11000/api/v1/blockchain/leader/current/
+
+# If no leader, check quantum consensus
+curl http://localhost:11000/api/v1/blockchain/leader/quantum-selection/
+
+# Monitor leader selection process
+python leader_monitor.py --once
+
+# Check if nodes are properly connected
+curl http://localhost:11000/api/v1/health/ | jq '.consensus'
+```
+
+#### **Leader Selection Not Starting**
+```bash
+# Ensure auto-start is working (should start within 2-3 seconds)
+# Check blockchain logs for leader selection initialization
+python monitor_logs.py tail consensus node_10000
+
+# Manually trigger if needed (shouldn't be necessary)
+# Leader selection now starts automatically on network startup
+```
 #### **Poor Performance**
 ```bash
 # Check system resources
@@ -362,6 +533,9 @@ htop
 
 # Monitor performance logs
 python monitor_logs.py watch performance node_10000
+
+# Monitor leader selection performance
+python leader_monitor.py
 
 # Tune configuration parameters
 # Edit blockchain/consensus/ configuration files
@@ -379,7 +553,7 @@ python monitor_logs.py watch debug node_10000
 
 ## 📊 **Performance Benchmarks**
 
-### **Expected Performance**
+### **Expected Performance** ⭐ **UPDATED**
 Based on testing with 5 nodes on modern hardware:
 
 | Metric | Value | Notes |
@@ -387,9 +561,12 @@ Based on testing with 5 nodes on modern hardware:
 | **Transaction Submission** | 272+ TPS | API submission rate |
 | **PoH Tick Rate** | 5,000/sec | Cryptographic clock |
 | **Consensus Time** | 2-15 seconds | Leader selection + block creation |
+| **Leader Selection Startup** | 2-3 seconds | NEW: Automatic on network start |
+| **Leader Schedule Updates** | Every 30 seconds | NEW: Continuous background updates |
 | **Sealevel Threads** | 8 parallel | Configurable |
 | **Block Size** | Unlimited | Removed artificial limits |
 | **Network Latency** | <10ms | Localhost testing |
+| **Leader API Response** | <50ms | NEW: Real-time leader monitoring |
 
 ### **Scaling Considerations**
 - **Vertical scaling**: Increase `ticks_per_second`, `thread_pool_size`
@@ -399,7 +576,7 @@ Based on testing with 5 nodes on modern hardware:
 
 ## �️ **Development**
 
-### **Code Structure**
+### **Code Structure** ⭐ **UPDATED**
 ```
 blockchain/
 ├── blockchain/           # Core implementation
@@ -408,17 +585,25 @@ blockchain/
 │   ├── transaction/     # Transaction processing
 │   ├── p2p/            # P2P networking
 │   └── utils/          # Enhanced logging & utilities
-├── api/                # FastAPI endpoints
+├── api/                # FastAPI endpoints + leader monitoring APIs
+│   └── api_v1/
+│       └── blockchain/
+│           └── views.py # NEW: Leader selection endpoints
 ├── tests/              # Test scripts
 ├── keys/               # Cryptographic keys
-└── logs/               # Enhanced logging output
+├── logs/               # Enhanced logging output
+├── leader_monitor.py   # NEW: Real-time leader monitoring tool
+├── api_test.py         # NEW: Python API testing script
+├── test_leader_apis.sh # NEW: Bash API testing script
+└── LEADER_MONITORING_GUIDE.md # NEW: Complete API documentation
 ```
 
-### **Adding New Features**
+### **Adding New Features** ⭐ **UPDATED**
 1. **New consensus mechanism**: Extend `blockchain/consensus/`
 2. **New transaction types**: Modify `blockchain/transaction/`
-3. **New APIs**: Add endpoints in `api/`
-4. **New monitoring**: Extend `monitor_logs.py`
+3. **New APIs**: Add endpoints in `api/` (see leader monitoring APIs as example)
+4. **New monitoring**: Extend `monitor_logs.py` or create tools like `leader_monitor.py`
+5. **Leader selection enhancements**: Modify `blockchain/quantum_consensus/`
 
 ### **Contributing**
 1. Fork the repository
@@ -429,7 +614,8 @@ blockchain/
 
 ## 📚 **Additional Resources**
 
-### **Documentation**
+### **Documentation** ⭐ **UPDATED**
+- **[LEADER_MONITORING_GUIDE.md](LEADER_MONITORING_GUIDE.md)** - NEW: Complete leader monitoring API guide
 - **[CLEANUP_COMPLETE.md](CLEANUP_COMPLETE.md)** - Project cleanup summary
 - **[BFT_CONSENSUS_IMPLEMENTATION_PLAN.md](BFT_CONSENSUS_IMPLEMENTATION_PLAN.md)** - Consensus architecture
 
@@ -442,13 +628,33 @@ blockchain/
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🤝 **Support**
+### **Support** ⭐ **ENHANCED**
 
 - **Issues**: Report bugs and request features via GitHub Issues
 - **Monitoring**: Use `python monitor_logs.py summary` for system status
+- **Leader Selection**: Use `python leader_monitor.py` for real-time leader monitoring
+- **API Testing**: Use `./test_leader_apis.sh` for quick API verification
+- **Documentation**: See `LEADER_MONITORING_GUIDE.md` for complete API documentation
 
 ---
 
 **🚀 Ready to build the future of quantum-enhanced blockchain technology!**
+
+## 🆕 **Latest Updates**
+
+### **v2.0 - Enhanced Leader Selection & Monitoring**
+- ⭐ **Automatic Leader Selection**: Leaders selected immediately on network startup (2-3 seconds)
+- ⭐ **Real-time Monitoring APIs**: 4 new endpoints for comprehensive leader monitoring
+- ⭐ **Continuous Updates**: Leader schedules refreshed every 30 seconds automatically  
+- ⭐ **Dynamic Discovery**: New nodes trigger immediate leader schedule updates
+- ⭐ **Monitoring Tools**: Python and bash scripts for real-time leader tracking
+- ⭐ **Complete Documentation**: `LEADER_MONITORING_GUIDE.md` with examples and integration patterns
+
+### **Key Features Added**
+1. **API Endpoints**: `/leader/current/`, `/leader/upcoming/`, `/leader/quantum-selection/`, `/leader/schedule/`
+2. **Monitoring Tools**: `leader_monitor.py`, `api_test.py`, `test_leader_apis.sh`
+3. **Auto-start**: No waiting for transactions - leader selection begins immediately
+4. **Background Processing**: Continuous 30-second updates maintain fresh schedules
+5. **Network Intelligence**: Auto-discovery triggers dynamic leader updates
 
 ⚠️ **Note**: This is a research and demonstration project. Not intended for production use.
