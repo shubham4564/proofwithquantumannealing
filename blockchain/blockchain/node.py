@@ -5,6 +5,10 @@ from threading import Timer
 from api.main import NodeAPI
 from blockchain.blockchain import Blockchain
 from blockchain.consensus.gulf_stream import GulfStreamProcessor
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from fast_gulf_stream import FastGulfStreamForwarder
 from blockchain.slot_producer import SlotBasedBlockProducer
 from blockchain.p2p.message import Message, MessageType, InventoryItem, InventoryMessage, GetDataMessage
 from blockchain.p2p.socket_communication import SocketCommunication
@@ -40,6 +44,17 @@ class Node:
         # Initialize blockchain with this node's public key for gossip integration
         self.blockchain = Blockchain(genesis_public_key=self.wallet.public_key_string())
         
+        # ENHANCED: Register this node with quantum consensus immediately at startup
+        if self.blockchain.quantum_consensus:
+            try:
+                self.blockchain.quantum_consensus.register_node(
+                    self.wallet.public_key_string(), 
+                    self.wallet.public_key_string()
+                )
+                logger.info(f"Node registered with quantum consensus: {self.wallet.public_key_string()[:20]}...")
+            except Exception as e:
+                logger.warning(f"Failed to register node with quantum consensus: {e}")
+        
         # Initialize gossip node with this node's specific ports (after blockchain creation)
         if self.blockchain.gossip_node:
             # Update gossip node with node-specific IP and ports
@@ -57,6 +72,14 @@ class Node:
         
         # Initialize Gulf Stream for transaction forwarding
         self.gulf_stream = GulfStreamProcessor(self.blockchain.leader_schedule)
+        
+        # Initialize Fast Gulf Stream for UDP forwarding to current/next leaders
+        self.fast_gulf_stream = FastGulfStreamForwarder(
+            node_public_key=self.wallet.public_key_string(),
+            leader_schedule=self.blockchain.leader_schedule,
+            port_base=15000  # Use ports 15000-15999 for Gulf Stream UDP
+        )
+        logger.info("Gulf Stream processor initialized")
         
         # Initialize slot-based block production
         self.slot_producer = SlotBasedBlockProducer(self)
@@ -181,7 +204,8 @@ class Node:
             'transaction_pools': {
                 'legacy_pool': len(self.transaction_pool.transactions),
                 'mempool': len(self.mempool.transactions),
-                'gulf_stream': self.blockchain.gulf_stream_node.get_gulf_stream_status() if self.blockchain.gulf_stream_node else None
+                'gulf_stream': self.blockchain.gulf_stream_node.get_gulf_stream_status() if self.blockchain.gulf_stream_node else None,
+                'fast_gulf_stream': self.fast_gulf_stream.get_metrics() if self.fast_gulf_stream else None
             },
             'gossip_protocol': self.blockchain.get_gossip_stats(),
             'slot_production': {
@@ -248,7 +272,36 @@ class Node:
 
         # 2. Submit to blockchain's Gulf Stream system
         try:
+            if not self.blockchain:
+                raise Exception("Blockchain not initialized")
+                
             result = self.blockchain.submit_transaction(transaction)
+            
+            # 3. FAST FORWARD: Immediately forward to current and next leaders via UDP
+            # Convert transaction object to dictionary format for Fast Gulf Stream
+            transaction_dict = {
+                'sender_public_key': transaction.sender_public_key,
+                'receiver_public_key': transaction.receiver_public_key,
+                'amount': transaction.amount,
+                'transaction_type': transaction.type,  # Use .type instead of .transaction_type
+                'timestamp': transaction.timestamp,    # Use .timestamp directly
+                'transaction_id': transaction.id       # Use .id instead of .transaction_id
+            }
+            
+            # Check if Fast Gulf Stream is available before using it
+            fast_forward_result = {}
+            if hasattr(self, 'fast_gulf_stream') and self.fast_gulf_stream:
+                fast_forward_result = self.fast_gulf_stream.forward_transaction_fast(transaction_dict)
+                # Ensure result is a dictionary (handle legacy boolean returns)
+                if not isinstance(fast_forward_result, dict):
+                    fast_forward_result = {
+                        'current_leader_sent': bool(fast_forward_result),
+                        'next_leader_sent': False,
+                        'forward_time_ms': 0,
+                        'success': bool(fast_forward_result)
+                    }
+            else:
+                logger.warning({"message": "Fast Gulf Stream not available, skipping fast forward"})
             
             logger.info({
                 "message": "Transaction submitted via Gulf Stream",
@@ -258,30 +311,79 @@ class Node:
                 "sender": transaction.sender_public_key[:20] + "...",
                 "receiver": transaction.receiver_public_key[:20] + "...",
                 "source": "API" if from_api else f"P2P({source_peer[:10]}...)" if source_peer else "P2P",
+                "fast_forward": {
+                    "current_leader_sent": fast_forward_result.get('current_leader_sent', False),
+                    "next_leader_sent": fast_forward_result.get('next_leader_sent', False),
+                    "forward_time_ms": fast_forward_result.get('forward_time_ms', 0)
+                },
                 "gulf_stream_stats": result.get('gulf_stream_status', {}).get('forwarding_stats', {})
             })
             
         except Exception as e:
             logger.error({
-                "message": "Gulf Stream submission failed, using fallback",
+                "message": "Gulf Stream submission failed - transaction rejected",
                 "error": str(e),
                 "tx_hash": tx_hash[:16] + "..."
             })
             
-            # Fallback to legacy pools
-            self.transaction_pool.add_transaction(transaction)
-            self.mempool.add_transaction(transaction, source_peer)
-            
-            # Use traditional gossip as fallback
-            if from_api:
-                self._announce_transaction_to_peers(tx_hash)
+            # No fallback - Gulf Stream only
+            # Transaction is rejected if Gulf Stream fails
+            return
 
         # Check if block proposal is needed
         block_proposal_required = self.transaction_pool.forging_required()  # Method name kept for compatibility
         
-        if block_proposal_required or len(self.transaction_pool.transactions) % 10 == 0:
+        # ENHANCED: Current leader should create blocks more frequently if they have transactions
+        current_leader = self.blockchain.leader_schedule.get_current_leader()
+        am_current_leader = (current_leader == self.wallet.public_key_string())
+        
+        # Get available transactions for block creation (Fast Gulf Stream + regular Gulf Stream + local)
+        available_transactions = []
+        gulf_stream_transactions = []
+        fast_gulf_stream_transactions = []
+        
+        if am_current_leader:
+            # PRIORITY 1: Get Fast Gulf Stream transactions (UDP forwarded)
+            fast_gulf_stream_transactions = self.fast_gulf_stream.get_transactions_for_leader(self.wallet.public_key_string())
+            available_transactions.extend(fast_gulf_stream_transactions)
+            
+            # PRIORITY 2: Get regular Gulf Stream transactions (in-memory forwarded)
+            gulf_stream_transactions = self.blockchain.gulf_stream_node.get_transactions_for_leader(self.wallet.public_key_string())
+            available_transactions.extend(gulf_stream_transactions)
+        
+        # PRIORITY 3: Add local transaction pool
+        available_transactions.extend(self.transaction_pool.transactions)
+        
+        # ENHANCED: Immediate block creation if I'm leader with transactions
+        should_create_block = (
+            am_current_leader and len(available_transactions) > 0
+        ) or block_proposal_required
+        
+        if should_create_block:
             logger.info({
-                "message": "Checking 10-second block proposal interval",
+                "message": "Triggering block creation as current leader",
+                "am_current_leader": am_current_leader,
+                "fast_gulf_stream_transactions": len(fast_gulf_stream_transactions) if am_current_leader else 0,
+                "gulf_stream_transactions": len(gulf_stream_transactions) if am_current_leader else 0,
+                "legacy_pool_size": len(self.transaction_pool.transactions),
+                "total_available_transactions": len(available_transactions),
+                "mempool_size": len(self.mempool.transactions),
+                "reason": "Current leader with transactions" if am_current_leader and len(available_transactions) > 0 else "4-second interval reached"
+            })
+            self.propose_block()
+        
+        # OLD CODE: More frequent block proposal checks - every 5 transactions or when interval is reached
+        elif len(self.transaction_pool.transactions) % 5 == 0 and len(self.transaction_pool.transactions) > 0:
+            logger.info({
+                "message": "Fallback: Legacy block proposal check (every 5 transactions)",
+                "legacy_pool_size": len(self.transaction_pool.transactions),
+                "mempool_size": len(self.mempool.transactions),
+                "node_public_key": self.wallet.public_key_string()[:20] + "...",
+                "am_current_leader": am_current_leader
+            })
+            self.propose_block()
+            logger.info({
+                "message": "Checking 4-second block proposal interval",
                 "block_proposal_required": block_proposal_required,
                 "legacy_pool_size": len(self.transaction_pool.transactions),
                 "mempool_size": len(self.mempool.transactions),
@@ -294,7 +396,7 @@ class Node:
                 time.sleep(0.1)  # Brief delay to allow quantum consensus calculations
                 
             logger.info({
-                "message": "30-second interval reached, attempting quantum consensus block proposal",
+                "message": "4-second interval reached, attempting quantum consensus block proposal",
                 "source": "API" if from_api else "P2P"
             })
             self.propose_block()
@@ -821,20 +923,22 @@ class Node:
             self.blockchain = local_blockchain_copy
 
     def propose_block(self):
-        # Check if we should propose a block (quantum consensus selection)
-        block_proposer = self.blockchain.next_block_proposer()
+        # FIXED: Check if we should propose a block using LEADER SCHEDULE (not quantum consensus directly)
+        current_leader = self.blockchain.leader_schedule.get_current_leader()
         my_public_key = self.wallet.public_key_string()
         
         logger.info({
             "message": "Block proposal attempt",
-            "selected_block_proposer": block_proposer[:50] + "..." if block_proposer else "None",
+            "current_leader_from_schedule": current_leader[:50] + "..." if current_leader else "None",
             "my_public_key": my_public_key[:50] + "...",
-            "am_i_block_proposer": block_proposer == my_public_key,
+            "am_i_current_leader": current_leader == my_public_key,
             "transactions_in_pool": len(self.transaction_pool.transactions),
-            "current_blockchain_length": len(self.blockchain.blocks)
+            "current_blockchain_length": len(self.blockchain.blocks),
+            "current_slot": self.blockchain.leader_schedule.get_current_slot()
         })
         
-        if block_proposer == my_public_key:
+        # ENHANCED: Check if I'm the current leader according to the leader schedule
+        if current_leader == my_public_key:
             try:
                 # CRITICAL: Check if a block was already received for this round
                 # This prevents race conditions where multiple nodes try to propose blocks simultaneously
@@ -847,26 +951,36 @@ class Node:
                     "transactions_available": len(self.transaction_pool.transactions)
                 })
                 
-                # Get transactions for this block using Gulf Stream (no size limits)
+                # Get transactions for this block using Fast Gulf Stream + Gulf Stream + PoH ordering
                 
-                # First try to get transactions from Gulf Stream
-                gulf_stream_transactions = self.gulf_stream.get_transactions_for_block()
+                # PRIORITY 1: Get Fast Gulf Stream transactions (UDP forwarded)
+                fast_gulf_stream_transactions = self.fast_gulf_stream.get_transactions_for_leader(my_public_key)
                 
-                # Fallback to legacy transaction pool if Gulf Stream is empty
-                if gulf_stream_transactions:
-                    transactions_for_block = gulf_stream_transactions
+                # PRIORITY 2: Get regular Gulf Stream transactions (in-memory forwarded)
+                gulf_stream_transactions = self.blockchain.gulf_stream_node.get_transactions_for_leader(my_public_key)
+                
+                # PRIORITY 3: Combine with local transaction pool 
+                all_available_transactions = fast_gulf_stream_transactions + gulf_stream_transactions + self.transaction_pool.transactions
+                
+                # PoH ordering: Let blockchain order transactions with Proof of History
+                if all_available_transactions:
+                    transactions_for_block = all_available_transactions  # Blockchain will apply PoH ordering
                     logger.info({
-                        "message": "Using Gulf Stream transactions for block",
+                        "message": "Using Fast Gulf Stream + Gulf Stream + local transactions for block with PoH ordering",
+                        "fast_gulf_stream_count": len(fast_gulf_stream_transactions),
                         "gulf_stream_count": len(gulf_stream_transactions),
-                        "size_limit": "none"
+                        "local_pool_count": len(self.transaction_pool.transactions),
+                        "total_transactions": len(all_available_transactions),
+                        "will_apply_poh_ordering": True
                     })
                 else:
-                    # Get all transactions from legacy pool (no size limit)
-                    transactions_for_block = self.transaction_pool.transactions
+                    # Create empty block for slot (Solana-style: every slot gets a block)
+                    transactions_for_block = []
                     logger.info({
-                        "message": "Using legacy pool transactions for block (Gulf Stream empty)",
-                        "legacy_pool_count": len(transactions_for_block),
-                        "size_limit": "none"
+                        "message": "Creating empty block for slot (no transactions available)",
+                        "gulf_stream_count": 0,
+                        "local_pool_count": 0,
+                        "slot_based_creation": True
                     })
                 
                 # Allow block proposal with any number of transactions (including zero)
@@ -881,8 +995,17 @@ class Node:
                 # Update last block creation time before creating block
                 self.transaction_pool.update_last_forge_time()  # Method name kept for compatibility
                 
+                # Debug: Check wallet type before calling create_block
+                logger.debug({
+                    "message": "Debug: About to call create_block with Solana-style parallel execution",
+                    "wallet_type": type(self.wallet).__name__,
+                    "wallet_has_public_key_string": hasattr(self.wallet, 'public_key_string'),
+                    "my_public_key": my_public_key[:20] + "...",
+                    "solana_features": ["PoH Sequencing", "Parallel Execution (Sealevel)", "State Root Hash", "Gulf Stream"]
+                })
+                
                 block = self.blockchain.create_block(
-                    transactions_for_block, self.wallet
+                    self.wallet, use_gulf_stream=True
                 )
                 
                 # Double-check that no block was added while we were creating this one
@@ -896,13 +1019,20 @@ class Node:
                     return  # Abort block proposal, another node was faster
                 
                 logger.info({
-                    "message": "Block proposed successfully",
+                    "message": "SOLANA-STYLE BLOCK PROPOSED SUCCESSFULLY",
                     "block_number": block.block_count,
                     "transactions_included": len(block.transactions),
                     "block_proposer": my_public_key[:20] + "...",
                     "block_timestamp": block.timestamp,
                     "block_hash": BlockchainUtils.hash(block.payload()).hex()[:16] + "...",
-                    "remaining_in_pool": len(self.transaction_pool.transactions) - len(block.transactions)
+                    "remaining_in_pool": len(self.transaction_pool.transactions) - len(block.transactions),
+                    "solana_features": {
+                        "poh_entries": len(getattr(block, 'poh_sequence', [])),
+                        "parallel_execution": bool(hasattr(block, 'parallel_execution_results')),
+                        "state_root_hash": getattr(block, 'state_root_hash', 'none')[:16] + "..." if hasattr(block, 'state_root_hash') else "none",
+                        "execution_time_ms": getattr(block, 'execution_time_ms', 0),
+                        "parallel_efficiency": f"{getattr(block, 'parallel_efficiency', 100):.1f}%"
+                    }
                 })
                 
                 # Remove only the transactions that were included in the block
@@ -938,7 +1068,39 @@ class Node:
                 
         else:
             logger.info({
-                "message": "Not selected as block proposer",
-                "selected_block_proposer": block_proposer[:20] + "..." if block_proposer else "None",
-                "my_key": my_public_key[:20] + "..."
+                "message": "Not selected as current leader",
+                "current_leader_from_schedule": current_leader[:20] + "..." if current_leader else "None",
+                "my_key": my_public_key[:20] + "...",
+                "current_slot": self.blockchain.leader_schedule.get_current_slot()
             })
+    
+    def shutdown(self):
+        """Gracefully shutdown the node and all its components"""
+        logger.info("Shutting down blockchain node...")
+        
+        # Shutdown Fast Gulf Stream
+        if hasattr(self, 'fast_gulf_stream') and self.fast_gulf_stream:
+            try:
+                self.fast_gulf_stream.shutdown()
+                logger.info("Fast Gulf Stream shutdown completed")
+            except Exception as e:
+                logger.error(f"Error shutting down Fast Gulf Stream: {e}")
+        
+        # Shutdown slot producer
+        if hasattr(self, 'slot_producer') and self.slot_producer:
+            try:
+                if hasattr(self.slot_producer, 'stop'):
+                    self.slot_producer.stop()
+                logger.info("Slot producer shutdown completed")
+            except Exception as e:
+                logger.error(f"Error shutting down slot producer: {e}")
+        
+        # Shutdown P2P
+        if self.p2p:
+            try:
+                self.p2p.stop()
+                logger.info("P2P communication shutdown completed")
+            except Exception as e:
+                logger.error(f"Error shutting down P2P: {e}")
+        
+        logger.info("Node shutdown completed")

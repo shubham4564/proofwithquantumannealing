@@ -171,8 +171,8 @@ async def current_leader_info(request: Request):
                 "active_nodes": quantum_metrics.get("active_nodes", 0),
                 "gossip_peers": quantum_metrics.get("gossip_protocol", {}).get("active_peers", 0)
             },
-            "node_public_key": getattr(node, 'public_key', 'unknown')[:30] + "..." if hasattr(node, 'public_key') else "unknown",
-            "am_i_current_leader": node.blockchain.am_i_current_leader(getattr(node, 'public_key', '')) if hasattr(node, 'public_key') else False,
+            "node_public_key": node.wallet.public_key_string()[:30] + "..." if hasattr(node, 'wallet') else "unknown",
+            "am_i_current_leader": node.blockchain.am_i_current_leader(node.wallet.public_key_string()) if hasattr(node, 'wallet') else False,
             "timestamp": leader_info.get("slot_start_time", 0)
         }
         

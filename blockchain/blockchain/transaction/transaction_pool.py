@@ -5,7 +5,7 @@ class TransactionPool:
     def __init__(self):
         self.transactions = []
         self.last_forge_time = time.time()  # Initialize to current time
-        self.forge_interval = 30.0  # Extended to 30-second block proposal interval for CPU optimization
+        self.forge_interval = 4.0  # REDUCED: 4-second block proposal interval to align better with 2-second slots
         self.max_block_size_bytes = 10 * 1024 * 1024  # 10 MB block size limit
         
         # Block size considerations
@@ -34,13 +34,14 @@ class TransactionPool:
     def forging_required(self):  # Method name kept for compatibility
         """
         Determine if block proposal is required based on:
-        1. Fixed 10-second interval - block proposal occurs every 10 seconds regardless of transaction count
+        1. Fixed 4-second interval - block proposal occurs every 4 seconds regardless of transaction count
         2. No minimum transaction requirements - any number of transactions can be included
+        3. ENHANCED: More frequent block creation to align with slot-based leader selection
         """
         current_time = time.time()
         time_since_last_forge = current_time - self.last_forge_time
         
-        # Propose block every 10 seconds regardless of transaction count
+        # Propose block every 4 seconds regardless of transaction count (aligned with slot timing)
         if time_since_last_forge >= self.forge_interval:
             return True
             
@@ -139,7 +140,7 @@ class TransactionPool:
         return time.time() - self.last_forge_time
 
     def get_time_until_next_forge(self):  # Method name kept for compatibility
-        """Get the time remaining until the next 10-second block proposal interval"""
+        """Get the time remaining until the next 4-second block proposal interval"""
         time_since_last = self.get_time_since_last_forge()
         if time_since_last >= self.forge_interval:
             return 0.0  # Ready to propose block now

@@ -156,7 +156,7 @@ class GossipNode:
             return  # No peers to push to
         
         # Get newest CRDS items (limit to prevent message size issues)
-        newest_items = self.crds.get_newest_items(3)  # Reduced from 10 to 3
+        newest_items = self.crds.get_newest_items(1)  # Reduced to 1 item to prevent UDP size issues
         if not newest_items:
             return
         
@@ -486,10 +486,21 @@ class GossipNode:
         """Send a message to a target peer"""
         try:
             message_data = json.dumps(message.to_dict()).encode()
+            message_size = len(message_data)
+            
+            # Check if message is too large for UDP (max 65507 bytes)
+            if message_size > 65507:
+                logger.warning(f"Message too large ({message_size} bytes) for UDP to {target_info.ip_address}:{target_info.gossip_port}")
+                return
+            
             await asyncio.get_event_loop().sock_sendto(
                 self.socket, message_data, (target_info.ip_address, target_info.gossip_port)
             )
             self.stats['messages_sent'] += 1
+            
+            # Log large messages for debugging
+            if message_size > 1024:  # Log messages over 1KB
+                logger.debug(f"Large gossip message sent: {message_size} bytes to {target_info.ip_address}:{target_info.gossip_port}")
             
         except Exception as e:
             logger.warning(f"Failed to send message to {target_info.ip_address}:{target_info.gossip_port}: {e}")

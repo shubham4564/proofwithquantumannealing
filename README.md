@@ -502,6 +502,23 @@ python monitor_logs.py tail network node_10000
 curl http://localhost:11000/api/v1/health/
 ```
 
+#### **Transaction Not Included in Blocks** ⭐ **KNOWN ISSUE**
+```bash
+# Current issue: Transactions are submitted successfully but not included in blocks
+# This is due to leader selection and block creation timing mismatch
+
+# Check transaction submission
+curl http://localhost:11000/api/v1/transaction/create/ \
+  -X POST -H "Content-Type: application/json" \
+  -d '{"transaction": "<base64_encoded_transaction>"}'
+
+# Check if transaction pool is empty (indicates processing)
+curl http://localhost:11000/api/v1/transaction/transaction_pool/
+
+# Workaround: Force block creation through leader monitoring
+python leader_monitor.py 11000 1 --detailed
+```
+
 #### **Leader Selection Issues** ⭐ **NEW**
 ```bash
 # Leader not being selected

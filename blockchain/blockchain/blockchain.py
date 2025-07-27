@@ -368,19 +368,26 @@ class Blockchain:
         This is the entry point for transactions into the blockchain network.
         Transactions are automatically forwarded to upcoming leaders.
         """
-        logger.info(f"Transaction submitted: {transaction.id[:8]} from {transaction.sender_public_key[:20]}...")
-        
-        # Process transaction through Gulf Stream
-        self.gulf_stream_node.receive_transaction(transaction)
-        
-        # Update leader schedule to ensure it's current
-        self.update_leader_schedule()
-        
-        return {
-            'transaction_id': transaction.id,
-            'submitted_at': time.time(),
-            'gulf_stream_status': self.gulf_stream_node.get_gulf_stream_status()
-        }
+        try:
+            logger.info(f"Transaction submitted: {transaction.id[:8]} from {transaction.sender_public_key[:20]}...")
+            
+            # Process transaction through Gulf Stream
+            if self.gulf_stream_node:
+                self.gulf_stream_node.receive_transaction(transaction)
+            else:
+                logger.warning("Gulf Stream node not initialized")
+            
+            # Update leader schedule to ensure it's current
+            self.update_leader_schedule()
+            
+            return {
+                'transaction_id': transaction.id,
+                'submitted_at': time.time(),
+                'gulf_stream_status': self.gulf_stream_node.get_gulf_stream_status() if self.gulf_stream_node else None
+            }
+        except Exception as e:
+            logger.error(f"Error in submit_transaction: {str(e)}")
+            raise e
     
     def update_leader_schedule(self):
         """
@@ -443,18 +450,32 @@ class Blockchain:
 
     def create_block(self, proposer_wallet, use_gulf_stream=True):
         """
-        Create a new block using PoH sequencing and Gulf Stream transactions.
+        Create a new block using complete Solana-style leader processing.
         
-        This implements the updated Solana-style process:
+        This implements the full Solana leader processing pipeline:
         1. Leader retrieves Gulf Stream forwarded transactions (if leader)
         2. PoH sequencing: Order transactions with cryptographic timestamps
-        3. Block creation: Bundle PoH sequence into a block
-        4. Turbine preparation: Ready the block for shredded propagation
+        3. PARALLEL EXECUTION: Execute non-conflicting transactions in parallel (Sealevel)
+        4. STATE ROOT COMPUTATION: Compute cryptographic hash of resulting state
+        5. Block creation: Bundle PoH sequence + execution results + state root
+        6. Turbine preparation: Ready the block for shredded propagation
         
         Args:
             proposer_wallet: Wallet of the block proposer
             use_gulf_stream: Whether to use Gulf Stream forwarded transactions
         """
+        logger.info(f"Starting complete Solana-style block creation with parallel execution")
+        
+        # Debug: Check what type proposer_wallet actually is
+        if not hasattr(proposer_wallet, 'public_key_string'):
+            logger.error({
+                "message": "DEBUG: proposer_wallet is not a wallet object",
+                "type": type(proposer_wallet).__name__,
+                "value": str(proposer_wallet)[:100] if isinstance(proposer_wallet, (list, str)) else "unknown",
+                "has_public_key_string": hasattr(proposer_wallet, 'public_key_string')
+            })
+            raise ValueError(f"proposer_wallet must be a Wallet object, got {type(proposer_wallet)}")
+        
         proposer_public_key = proposer_wallet.public_key_string()
         
         # Get transactions for this leader
@@ -472,8 +493,8 @@ class Blockchain:
         # Get transactions that are covered (have sufficient balance and valid signatures)
         covered_transactions = self.get_covered_transaction_set(available_transactions)
         
-        # PoH Sequencing: Insert transactions into the PoH stream
-        logger.info(f"Starting PoH sequencing for {len(covered_transactions)} transactions")
+        # STEP 1: PoH Sequencing - Insert transactions into the PoH stream
+        logger.info(f"STEP 1: PoH sequencing for {len(covered_transactions)} transactions")
         for transaction in covered_transactions:
             # Add periodic ticks to maintain continuous PoH stream
             self.poh_sequencer.tick()
@@ -490,23 +511,94 @@ class Blockchain:
         poh_sequence = self.poh_sequencer.get_sequence()
         logger.info(f"PoH sequencing complete: {len(poh_sequence)} entries, {len(covered_transactions)} transactions")
         
-        # Execute transactions in PoH order (they're already ordered)
+        # STEP 2: Extract ordered transactions from PoH sequence
         ordered_transactions = [entry.transaction for entry in poh_sequence if entry.transaction is not None]
+        
+        # STEP 3: PARALLEL EXECUTION using Sealevel-style executor
+        logger.info(f"STEP 2: Starting Sealevel parallel execution for {len(ordered_transactions)} transactions")
+        
+        # Initialize account model if not already present
+        if not hasattr(self, 'account_model'):
+            from blockchain.account_model import AccountModel
+            self.account_model = AccountModel()
+            logger.info("Initialized AccountModel for parallel execution")
+        
+        # Initialize Sealevel executor if not already present  
+        if not hasattr(self, 'sealevel_executor'):
+            from blockchain.sealevel_executor import SealevelExecutor
+            self.sealevel_executor = SealevelExecutor(max_workers=8)
+            logger.info("Initialized SealevelExecutor for parallel execution")
+        
+        # Execute transactions in parallel
+        execution_result = {}
+        if ordered_transactions:
+            execution_result = self.sealevel_executor.execute_transactions_parallel(
+                ordered_transactions, 
+                self.account_model
+            )
+            
+            logger.info({
+                "message": "Parallel execution completed",
+                "total_transactions": execution_result.get('total_transactions', 0),
+                "execution_time_ms": execution_result.get('total_execution_time_ms', 0),
+                "parallel_efficiency": f"{execution_result.get('parallel_efficiency', 0):.1f}%",
+                "speedup_factor": f"{execution_result.get('speedup_factor', 1):.1f}x",
+                "batch_count": execution_result.get('batch_count', 0),
+                "state_root_hash": execution_result.get('state_root_hash', 'none')[:16] + "..."
+            })
+        else:
+            # Even with no transactions, compute state root hash
+            from blockchain.sealevel_executor import SealevelExecutor
+            temp_executor = SealevelExecutor()
+            state_root_hash = temp_executor._compute_state_root_hash(self.account_model)
+            execution_result = {
+                'total_transactions': 0,
+                'total_execution_time_ms': 0,
+                'parallel_efficiency': 100,
+                'speedup_factor': 1,
+                'batch_count': 0,
+                'state_root_hash': state_root_hash
+            }
+            logger.info("No transactions to execute, computed empty state root hash")
+        
+        # STEP 4: Legacy transaction execution for compatibility (TODO: Remove when fully migrated)
+        # This ensures backward compatibility while we transition to the new parallel execution model
         self.execute_transactions(ordered_transactions)
         
-        # Create the block with PoH sequence
+        # STEP 5: Create the block with PoH sequence + execution results + state root
         new_block = proposer_wallet.create_block(
             ordered_transactions,
             last_block_hash,
             len(self.blocks),
         )
         
-        # Attach PoH sequence to block for verification
+        # STEP 6: Attach Solana-style metadata to block
         new_block.poh_sequence = [entry.to_dict() for entry in poh_sequence]
+        new_block.parallel_execution_results = execution_result
+        new_block.state_root_hash = execution_result.get('state_root_hash')
+        new_block.execution_time_ms = execution_result.get('total_execution_time_ms', 0)
+        new_block.parallel_efficiency = execution_result.get('parallel_efficiency', 100)
         
-        # Log block creation with PoH details
+        # Calculate block size
         block_size = new_block.calculate_size() if hasattr(new_block, 'calculate_size') else 0
-        logger.info(f"PoH-sequenced block created: {len(ordered_transactions)} transactions, {len(poh_sequence)} PoH entries (size: {block_size} bytes)")
+        
+        # STEP 7: Log comprehensive block creation results
+        logger.info({
+            "message": "SOLANA-STYLE BLOCK CREATED SUCCESSFULLY",
+            "block_number": new_block.block_count,
+            "transactions_included": len(ordered_transactions),
+            "poh_entries": len(poh_sequence),
+            "parallel_execution": {
+                "batch_count": execution_result.get('batch_count', 0),
+                "execution_time_ms": execution_result.get('total_execution_time_ms', 0),
+                "efficiency_percent": execution_result.get('parallel_efficiency', 100),
+                "speedup_factor": execution_result.get('speedup_factor', 1)
+            },
+            "state_root_hash": execution_result.get('state_root_hash', 'none')[:16] + "...",
+            "block_size_bytes": block_size,
+            "block_proposer": proposer_public_key[:20] + "...",
+            "timestamp": new_block.timestamp
+        })
         
         self.blocks.append(new_block)
         return new_block

@@ -1,3 +1,4 @@
+
 """
 Gossip Protocol Messages Implementation
 =====================================
@@ -35,7 +36,7 @@ class PushMessage:
     def to_dict(self) -> Dict:
         """Convert to dictionary for network transmission"""
         # Limit the number of CRDS values to prevent message size issues
-        limited_crds_values = self.crds_values[:3]  # Maximum 3 items per push
+        limited_crds_values = self.crds_values[:1]  # Maximum 1 item per push to prevent UDP size issues
         return {
             'type': 'PushMessage',
             'sender_public_key': self.sender_public_key,  # Keep full key for validation
@@ -124,8 +125,8 @@ class PullResponse:
         limited_crds_values = self.crds_values[:3]  # Maximum 3 items per response
         return {
             'type': 'PullResponse',
-            'sender_public_key': self.sender_public_key[:32],  # Truncate for size
-            'requester_public_key': self.requester_public_key[:32],  # Truncate for size
+            'sender_public_key': self.sender_public_key,  # Keep full key for validation
+            'requester_public_key': self.requester_public_key,  # Keep full key for validation
             'crds_values': limited_crds_values,
             'timestamp': self.timestamp,
             'message_id': self.message_id,

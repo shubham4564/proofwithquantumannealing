@@ -129,11 +129,16 @@ class CrdsValue:
         
         # Optimize for network transmission - truncate large data
         if self.data_type == 'EpochSlots' and isinstance(data_dict, dict):
-            if 'slot_leaders' in data_dict and len(data_dict['slot_leaders']) > 20:
-                # Limit to first 20 slots to prevent message size issues
-                limited_slots = dict(list(data_dict['slot_leaders'].items())[:20])
+            if 'slot_leaders' in data_dict and len(data_dict['slot_leaders']) > 5:
+                # Limit to first 5 slots to prevent message size issues
+                limited_slots = dict(list(data_dict['slot_leaders'].items())[:5])
                 data_dict = data_dict.copy()
                 data_dict['slot_leaders'] = limited_slots
+                
+        # Also truncate public keys for network efficiency
+        if 'public_key' in data_dict and isinstance(data_dict['public_key'], str) and len(data_dict['public_key']) > 100:
+            data_dict = data_dict.copy()
+            data_dict['public_key'] = data_dict['public_key'][:50] + "..."  # Truncate long public keys
         
         return {
             'data_type': self.data_type,
