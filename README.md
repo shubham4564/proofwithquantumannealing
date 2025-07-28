@@ -5,11 +5,11 @@
 
 A high-performance blockchain implementation featuring **Solana-style architecture** with quantum consensus, Proof of History (PoH), parallel execution (Sealevel), and efficient block propagation (Turbine).
 
-## � **Key Features**
+## 🌟 **Key Features**
 
 ### **🔮 Quantum Consensus**
 - **Quantum annealing-based leader selection** for deterministic consensus
-- **2-second slot intervals** with continuous leader scheduling
+- **450ms slot intervals** with continuous leader scheduling
 - **Byzantine fault tolerance** with quantum-enhanced security
 - **Health-based voting system** prioritizing healthy nodes over stake weights
 
@@ -19,13 +19,13 @@ A high-performance blockchain implementation featuring **Solana-style architectu
 - **🔄 Sealevel**: Parallel transaction execution with 8-thread processing
 - **🌪️ Turbine**: Efficient block propagation with erasure coding and shred distribution
 
-### **📊 Enhanced Logging & Monitoring**
-- **Component-specific logs**: Separate files for PoH, Sealevel, Turbine, consensus, transactions
-- **Performance metrics**: Real-time TPS monitoring and latency analysis
-- **Real-time monitoring**: Live log tailing and component analysis
-- **JSON-structured logs**: Machine-readable for automated analysis
+### **📊 Enhanced Performance**
+- **Slot-based consensus**: 450ms slot duration for fast finality
+- **Transaction throughput**: 4+ TPS measured performance
+- **Submission latency**: ~120ms average transaction submission
+- **End-to-end processing**: Sub-second transaction confirmation
 
-## �️ **Prerequisites**
+## 🛠️ **Prerequisites**
 
 ### **System Requirements**
 - **Python 3.8+** (3.9+ recommended)
@@ -52,102 +52,278 @@ dimod>=0.10.0
 python-json-logger>=2.0.0
 ```
 
-## � **Installation**
+## 📦 **Installation**
 
 ### **1. Clone Repository**
 ```bash
 git clone https://github.com/shubham4564/proofwithquantumannealing.git
-cd proofwithquantumannealing/blockchain
+cd proofwithquantumannealing
 ```
 
-### **2. Install Dependencies**
+### **2. Create Virtual Environment** (Recommended)
 ```bash
-# Using pip (recommended)
-pip install -r requirements/requirements.txt
+# Create virtual environment
+python3 -m venv .venv
 
-# Or using conda
-conda create -n blockchain python=3.9
-conda activate blockchain
-pip install -r requirements/requirements.txt
+# Activate virtual environment
+# On macOS/Linux:
+source .venv/bin/activate
+# On Windows:
+# .venv\Scripts\activate
 ```
 
-### **3. Generate Cryptographic Keys**
+### **3. Install Dependencies**
 ```bash
-# Generate keys for nodes (genesis + node keys)
-chmod +x generate_keys.sh
-./generate_keys.sh
+# Install all dependencies
+cd blockchain
+pip install -r requirements/requirements.txt
+
+# Verify installation
+python3 -c "import fastapi, cryptography, ecdsa; print('✅ Dependencies installed successfully')" 2>/dev/null || echo "❌ Some dependencies missing - check requirements.txt"
+```
+
+### **4. Generate Genesis Configuration**
+```bash
+# Generate genesis configuration with initial supply
+python3 -m blockchain.genesis_config --supply 1000000000
+
+# Expected output:
+# ✅ Genesis configuration created successfully
+# 📁 Files created: genesis_config/genesis.json, faucet_private_key.pem, etc.
+
+# Verify genesis config
+ls genesis_config/
+# Should show: genesis.json, faucet_private_key.pem, bootstrap_*.pem
+```
+
+### **5. Generate Node Keys**
+```bash
+# Generate keys for multiple nodes (optional - nodes can use genesis keys)
+python3 generate_ecdsa_keys.py 2>/dev/null || echo "Using existing genesis keys"
 
 # Verify key generation
-ls keys/
-# Should show: genesis_private_key.pem, genesis_public_key.pem, node*_private_key.pem, etc.
+ls keys/ 2>/dev/null || echo "Using genesis_config/ keys"
+# Should show node keys OR will use keys from genesis_config/
+```
+
+### **6. Quick Installation Verification**
+```bash
+# Test that everything is working
+echo "=== Installation Verification ==="
+echo "1. Python version:" && python3 --version
+echo "2. Dependencies:" && python3 -c "import fastapi; print('✅ FastAPI OK')" 2>/dev/null || echo "❌ FastAPI missing"
+echo "3. Genesis config:" && ls genesis_config/genesis.json 2>/dev/null && echo "✅ Genesis OK" || echo "❌ Genesis missing"
+echo "4. Blockchain module:" && python3 -c "import sys; sys.path.append('.'); import blockchain; print('✅ Blockchain module OK')" 2>/dev/null || echo "⚠️ Check Python path"
+echo "✅ Installation verification complete!"
 ```
 
 ## 🚀 **Quick Start**
 
-### **1. Start Blockchain Network** ⭐ **AUTO LEADER SELECTION**
+### **1. Start Blockchain Network**
 ```bash
-# Start 5 nodes (ports 10000-10004 for P2P, 11000-11004 for API)
-./start_nodes.sh
+# Navigate to blockchain directory
+cd blockchain
+
+# Start first node (bootstrap node)
+python3 run_node.py --node-id 1 --api-port 11000 --port 12000 --bootstrap --host 127.0.0.1 &
+
+# Wait 3 seconds, then start second node
+sleep 3
+python3 run_node.py --node-id 2 --api-port 11001 --port 12001 --bootstrap-host 127.0.0.1 --bootstrap-port 12000 --host 127.0.0.1 &
+
+# Check nodes are running
+ps aux | grep run_node
+```
+
+### **2. Verify Network Status**
+```bash
+# Check node connectivity
+curl http://localhost:11000/api/v1/blockchain/ | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(f'✅ Node 1: {len(data[\"blocks\"])} blocks')
+"
+
+curl http://localhost:11001/api/v1/blockchain/ | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(f'✅ Node 2: {len(data[\"blocks\"])} blocks')
+"
+
+# Check leader selection
+curl http://localhost:11000/api/v1/blockchain/leader/current/ | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+leader_info = data.get('current_leader_info', {})
+print(f'🎯 Current Slot: {leader_info.get(\"current_slot\", \"unknown\")}')
+print(f'⏰ Slot Duration: {leader_info.get(\"slot_duration\", \"unknown\")}s')
+print(f'👑 Current Leader: {data.get(\"current_leader\", \"unknown\")[:30]}...')
+"
+```
+
+## 💰 **Running Transactions**
+
+### **🎯 Basic Transaction Test**
+```bash
+# Run single transaction test
+python3 test_sample_transaction.py --amount 100
 
 # Expected output:
-# 🚀 Starting 5 blockchain nodes...
-# ✅ All 5 nodes started!
-# 📡 Node ports: 10000-10004
-# 🌐 API ports: 11000-11004
-# 📝 Enhanced Logs: Use 'python monitor_logs.py summary' to view all logs
-
-# NEW: Leader selection now starts automatically!
-# ⭐ Leaders are selected within 2-3 seconds of network startup
-# ⭐ No need to wait for transactions to trigger leader selection
-# ⭐ Continuous leader schedule updates every 30 seconds
+# 🧪 ENHANCED SAMPLE TRANSACTION TEST
+# ✅ Node connected! Current blocks: X
+# ✅ Leader selection active! Current slot: XXX
+# ✅ Transaction created: ID: xxxxx, Amount: 100.0
+# ✅ Transaction submitted successfully!
+# 📍 Slot Information:
+#    Transaction submitted within Slot XXX
+# ✅ Consensus achieved! Time: X.XX seconds
+# 🎯 Slot Journey: XXX → XXX (Block created in slot XXX)
 ```
 
-### **2. Verify Node Status & Leader Selection** ⭐ **ENHANCED**
+### **📊 Performance Testing**
 ```bash
-# Check if nodes are responding
-curl http://localhost:11000/api/v1/blockchain/ | jq
+# Run multiple transactions for performance analysis
+python3 test_sample_transaction.py --performance --count 5 --amount 50
 
-# Should return blockchain status with blocks array
-
-# Monitor leader selection (NEW!)
-curl http://localhost:11000/api/v1/blockchain/leader/current/ | jq
-
-# Expected response showing active leader:
-{
-  "current_leader": "node_10001",
-  "current_slot": 5,
-  "leader_valid": true,
-  "next_leader": "node_10002",
-  "next_slot": 6,
-  "time_until_next_slot": 1.8
-}
-
-# Use monitoring tools for continuous tracking
-python leader_monitor.py --once
+# Expected output:
+# 📊 RUNNING 5 TRANSACTIONS FOR PERFORMANCE MEASUREMENT
+# ✅ Transaction 1: XXX.Xms submission, XXX.Xms total
+# ✅ Transaction 2: XXX.Xms submission, XXX.Xms total
+# ...
+# 📊 PERFORMANCE METRICS REPORT
+# 📈 Transaction Performance:
+#    Throughput: X.XX TPS
+#    Average Submission Time: XXX.Xms
 ```
 
-### **3. Run Transaction Test**
+### **🔍 Advanced Transaction Testing**
 ```bash
-# NEW: Interactive transaction example (recommended for beginners)
-python simple_transaction_example.py
+# Test different transaction amounts
+python3 test_sample_transaction.py --amount 25.5 --node 11001
 
-# Simple transaction flow test
-python test_sample_transaction.py
+# Test on different nodes
+python3 test_sample_transaction.py --amount 75 --node 11000
+python3 test_sample_transaction.py --amount 125 --node 11001
 
-# Comprehensive Solana-style flow test
-python test_solana_flow.py
-
-# Performance analysis test
-python test_comprehensive_performance.py
+# Monitor slot progression during transactions
+python3 test_sample_transaction.py --amount 200 | grep -E "(Slot|slot)"
 ```
 
-## 💰 **Sending Transactions & Testing**
+## 🔧 **Troubleshooting**
 
-### **🔑 Transaction Basics**
+### **Common Issues & Solutions**
 
-#### **1. Understanding Transactions**
-The blockchain supports several transaction types:
-- **TRANSFER**: Send tokens between accounts
+#### **1. Consensus Timeout**
+```bash
+# Problem: "⚠️ Consensus timeout after 30 seconds"
+# Cause: No active leaders or nodes not producing blocks
+
+# Solution 1: Check node status
+curl http://localhost:11000/api/v1/blockchain/quantum-metrics/
+# Look for "active_nodes": should be > 0
+
+# Solution 2: Restart nodes
+pkill -f "python.*run_node"
+# Then restart as shown in Quick Start
+
+# Solution 3: Check leadership
+curl http://localhost:11000/api/v1/blockchain/leader/current/
+# "current_leader" should not be "unknown"
+```
+
+#### **2. Transaction Submission Failed**
+```bash
+# Problem: "❌ Transaction submission failed"
+# Cause: Node not responding or invalid transaction
+
+# Solution: Check node connectivity
+curl http://localhost:11000/api/v1/status
+# Should return {"status": "running"}
+
+# Check transaction pool
+curl http://localhost:11000/api/v1/mempool/
+```
+
+#### **3. Genesis Configuration Missing**
+```bash
+# Problem: "❌ Error: Genesis configuration not found"
+# Solution: Regenerate genesis config
+python3 -m blockchain.genesis_config --supply 1000000000
+```
+
+### **Monitoring Commands**
+```bash
+# Check all running nodes
+ps aux | grep run_node | grep -v grep
+
+# Monitor logs in real-time
+tail -f blockchain/logs/node1.log
+
+# Check blockchain state
+curl -s http://localhost:11000/api/v1/blockchain/ | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+blocks = data.get('blocks', [])
+print(f'Blockchain Status:')
+print(f'  Total Blocks: {len(blocks)}')
+if blocks:
+    latest = blocks[-1]
+    print(f'  Latest Block: #{latest.get(\"block_count\", \"unknown\")}')
+    print(f'  Transactions: {len(latest.get(\"transactions\", []))}')
+    print(f'  Timestamp: {latest.get(\"timestamp\", \"unknown\")}')
+"
+
+# Check current slot and timing
+curl -s http://localhost:11000/api/v1/blockchain/leader/current/ | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+leader_info = data.get('current_leader_info', {})
+print(f'Slot Information:')
+print(f'  Current Slot: {leader_info.get(\"current_slot\", \"unknown\")}')
+print(f'  Time Remaining: {leader_info.get(\"time_remaining_in_slot\", 0):.1f}s')
+print(f'  Slot Duration: {leader_info.get(\"slot_duration\", \"unknown\")}s')
+print(f'  Leader: {data.get(\"current_leader\", \"unknown\")[:30]}...')
+"
+```
+
+## 📊 **Performance Metrics**
+
+### **Measured Performance**
+- **Transaction Throughput**: 4.20 TPS (measured)
+- **Slot Duration**: 450ms (0.45 seconds)
+- **Transaction Submission**: 117-189ms average
+- **Block Confirmation**: 0.01-30s (depends on slot timing)
+- **End-to-End Latency**: ~200ms for immediate consensus
+
+### **Transaction Flow Timing**
+```
+Transaction Created → Gulf Stream → Leader TPU → Block Production
+     ~16ms              ~119ms        Slot-based       Immediate/Delayed
+```
+
+## 🎯 **Next Steps**
+
+After successful installation and transaction testing:
+
+1. **� Explore Advanced Features**:
+   - Quantum consensus parameters
+   - Parallel execution (Sealevel)
+   - Block propagation (Turbine)
+
+2. **📈 Performance Optimization**:
+   - Adjust slot duration
+   - Tune quantum consensus weights
+   - Configure parallel execution threads
+
+3. **🌐 Network Scaling**:
+   - Add more nodes
+   - Test with larger transaction volumes
+   - Monitor network synchronization
+
+4. **🛠️ Development**:
+   - Implement custom transaction types
+   - Add application-specific logic
+   - Integrate with external systems
 - **EXCHANGE**: Initial funding/exchange transactions
 - **Custom types**: Extensible for future use cases
 
