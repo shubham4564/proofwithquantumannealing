@@ -49,7 +49,7 @@ class Blockchain:
         # CRITICAL FIX: Always initialize quantum consensus for leader selection
         # Load bootstrap validator from genesis configuration for consensus
         self.genesis_public_key = genesis_public_key
-        self.quantum_consensus = QuantumAnnealingConsensus()
+        self.quantum_consensus = QuantumAnnealingConsensus(initialize_genesis=False)  # Don't auto-register genesis node
         
         # Will register actual validator keys after genesis configuration is loaded
         self._quantum_consensus_initialized = False

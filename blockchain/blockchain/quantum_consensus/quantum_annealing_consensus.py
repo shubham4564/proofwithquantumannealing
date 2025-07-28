@@ -10,9 +10,8 @@ import socket
 import importlib.util
 from typing import Dict, List, Tuple, Optional
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
 
 # D-Wave Ocean SDK imports
 from dimod import BinaryQuadraticModel, ExactSolver
@@ -172,7 +171,7 @@ class QuantumAnnealingConsensus:
             self.logger.setLevel(logging.INFO)
         
         # Protocol parameters
-        self.max_delay_tolerance = 30.0  # seconds (Δ in paper)
+        self.max_delay_tolerance = 90.0  # seconds (Δ in paper) - increased from 30s to accommodate 60s heartbeat
         self.block_proposal_timeout = 60.0  # seconds
         self.witness_quorum_size = 3  # minimum k/3 witnesses required
         self.nonce_expiry_time = 300  # 5 minutes for nonce replay protection
@@ -210,11 +209,8 @@ class QuantumAnnealingConsensus:
             self.initialize_genesis_node()
 
     def generate_node_keys(self, node_id: str) -> Tuple[str, str]:
-        """Generate RSA key pair for a node"""
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-        )
+        """Generate ECDSA P-256 key pair for a node"""
+        private_key = ec.generate_private_key(ec.SECP256R1())
         
         # Serialize private key
         private_pem = private_key.private_bytes(
@@ -235,30 +231,82 @@ class QuantumAnnealingConsensus:
         
         return public_pem, private_pem
 
+    def load_node_keys_from_file(self, node_id: str) -> Tuple[str, str]:
+        """Load ECDSA P-256 key pair from files in keys/ folder"""
+        try:
+            # Try to load from files first (much faster than generation)
+            private_key_path = f"./keys/{node_id}_private_key.pem"
+            public_key_path = f"./keys/{node_id}_public_key.pem"
+            
+            if os.path.exists(private_key_path) and os.path.exists(public_key_path):
+                # Load private key
+                with open(private_key_path, 'rb') as f:
+                    private_pem = f.read().decode('utf-8')
+                
+                # Load public key  
+                with open(public_key_path, 'rb') as f:
+                    public_pem = f.read().decode('utf-8')
+                
+                # Store keys in memory
+                self.node_keys[node_id] = (public_pem, private_pem)
+                
+                print(f"✅ Loaded keys from files for {node_id}")
+                return public_pem, private_pem
+            else:
+                print(f"⚠️  Key files not found for {node_id}, generating new keys")
+                return self.generate_node_keys(node_id)
+                
+        except Exception as e:
+            print(f"❌ Error loading keys for {node_id}: {e}")
+            return self.generate_node_keys(node_id)
+
+    def ensure_node_keys(self, node_id: str) -> Tuple[str, str]:
+        """Ensure node has keys, preferring file loading over generation"""
+        if node_id in self.node_keys:
+            # Keys already loaded in memory
+            return self.node_keys[node_id]
+        
+        # Try to load from files first, then generate if needed
+        return self.load_node_keys_from_file(node_id)
+
     def sign_message(self, node_id: str, message: bytes) -> str:
-        """Sign a message with node's private key"""
+        """Sign a message with node's ECDSA P-256 private key"""
+        import time
+        
+        sign_start = time.time()
+        
         if node_id not in self.node_keys:
             raise ValueError(f"No keys found for node {node_id}")
         
+        key_load_start = time.time()
         _, private_pem = self.node_keys[node_id]
         private_key = serialization.load_pem_private_key(
             private_pem.encode('utf-8'),
             password=None
         )
+        key_load_time = time.time() - key_load_start
         
+        signing_start = time.time()
         signature = private_key.sign(
             message,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
+            ec.ECDSA(hashes.SHA256())
         )
+        signing_time = time.time() - signing_start
         
-        return signature.hex()
+        hex_start = time.time()
+        result = signature.hex()
+        hex_time = time.time() - hex_start
+        
+        total_sign_time = time.time() - sign_start
+        
+        # Only print detailed timing if it's slow (>10ms)
+        if total_sign_time > 0.010:
+            print(f"           🐌 SLOW SIGNING: {total_sign_time * 1000:.1f}ms (load: {key_load_time * 1000:.1f}ms, sign: {signing_time * 1000:.1f}ms, hex: {hex_time * 1000:.1f}ms)")
+        
+        return result
 
     def verify_signature(self, node_id: str, message: bytes, signature_hex: str) -> bool:
-        """Verify a message signature using node's public key"""
+        """Verify a message signature using node's ECDSA P-256 public key"""
         if node_id not in self.node_keys:
             return False
         
@@ -271,18 +319,14 @@ class QuantumAnnealingConsensus:
             public_key.verify(
                 signature,
                 message,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH
-                ),
-                hashes.SHA256()
+                ec.ECDSA(hashes.SHA256())
             )
             return True
         except Exception:
             return False
 
     def verify_signature_bytes(self, public_key_bytes: bytes, message: bytes, signature_bytes: bytes) -> bool:
-        """Verify a message signature using raw public key bytes"""
+        """Verify a message signature using raw ECDSA P-256 public key bytes"""
         if not public_key_bytes or not signature_bytes:
             return False
         
@@ -293,11 +337,7 @@ class QuantumAnnealingConsensus:
             public_key.verify(
                 signature_bytes,
                 message,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH
-                ),
-                hashes.SHA256()
+                ec.ECDSA(hashes.SHA256())
             )
             return True
         except Exception:
@@ -418,11 +458,7 @@ class QuantumAnnealingConsensus:
             public_key.verify(
                 proof.signature,
                 message,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH
-                ),
-                hashes.SHA256()
+                ec.ECDSA(hashes.SHA256())
             )
             return True
         except Exception:
@@ -455,8 +491,8 @@ class QuantumAnnealingConsensus:
                 genesis_private_key = private_key_data.decode("utf-8")
                 self.node_keys[genesis_public_key] = (genesis_public_key, genesis_private_key)
             except FileNotFoundError:
-                # Generate keys if private key not found
-                self.generate_node_keys(genesis_public_key)
+                # Use file loading method if private key not found
+                self.ensure_node_keys("genesis")
             
             # Initialize genesis node with perfect scores
             self.nodes[genesis_public_key] = {
@@ -474,9 +510,9 @@ class QuantumAnnealingConsensus:
             }
             
         except FileNotFoundError:
-            # Fallback genesis node with generated keys
-            genesis_key = "genesis_node_key"
-            self.generate_node_keys(genesis_key)
+            # Fallback genesis node with file-loaded keys
+            genesis_key = "genesis"
+            self.ensure_node_keys(genesis_key)
             
             self.nodes[genesis_key] = {
                 'public_key': genesis_key,
@@ -497,22 +533,22 @@ class QuantumAnnealingConsensus:
         current_time = time.time()
         
         if node_id not in self.nodes:
-            # Generate cryptographic keys if not provided
+            # Load cryptographic keys from files if available, generate if not
             if node_id not in self.node_keys:
-                self.generate_node_keys(node_id)
+                self.ensure_node_keys(node_id)
             
             self.nodes[node_id] = {
                 'public_key': public_key,
-                'uptime': 0.0,
-                'latency': float('inf'),
-                'throughput': 0.0,
+                'uptime': 1.0,  # FIXED: Start with full uptime instead of 0.0
+                'latency': 0.05,  # FIXED: Start with reasonable latency instead of infinity
+                'throughput': 10.0,  # FIXED: Start with reasonable throughput instead of 0.0
                 'last_seen': current_time,
                 'proposal_success_count': 0,
                 'proposal_failure_count': 0,
                 'performance_history': [],  # Track recent performance
                 'cluster_id': None,  # For geographic clustering
                 'trust_score': 0.5,  # Initial trust score
-                'uptime_periods': [],  # Track uptime periods for paper-compliant calculation
+                'uptime_periods': [(current_time - 60, current_time)],  # FIXED: Add initial uptime period
                 'response_count': 0,  # Count of valid probe responses
                 'measurement_window_start': current_time,  # Start of current measurement window
                 'last_registration': current_time  # Track registration frequency for CPU optimization
@@ -584,12 +620,22 @@ class QuantumAnnealingConsensus:
         - TargetReceipt with signed response
         - WitnessReceipts with cryptographic proofs
         """
+        import time
         
-        # Ensure all nodes have cryptographic keys
+        probe_total_start = time.time()
+        print(f"      🔍 Starting individual probe: {source_node} → {target_node}")
+        
+        # STEP 1: Key Loading and Validation
+        key_loading_start = time.time()
+        # Ensure all nodes have cryptographic keys (prefer file loading)
         for node in [source_node, target_node] + witnesses:
             if node not in self.node_keys and node in self.nodes:
-                self.generate_node_keys(node)
+                self.ensure_node_keys(node)
+        key_loading_time = time.time() - key_loading_start
+        print(f"         ⚡ Key loading: {key_loading_time * 1000:.3f}ms")
         
+        # STEP 2: Witness Selection and Validation
+        witness_setup_start = time.time()
         # Filter available witnesses that have keys
         available_witnesses = [w for w in witnesses if w in self.nodes and w in self.node_keys]
         if len(available_witnesses) < self.witness_quorum_size:
@@ -601,7 +647,11 @@ class QuantumAnnealingConsensus:
                 min(self.witness_quorum_size - len(available_witnesses), len(all_possible_witnesses))
             )
             available_witnesses.extend(additional_witnesses)
+        witness_setup_time = time.time() - witness_setup_start
+        print(f"         👥 Witness setup: {witness_setup_time * 1000:.3f}ms ({len(available_witnesses)} witnesses)")
         
+        # STEP 3: Nonce Generation and Validation
+        nonce_start = time.time()
         # Generate cryptographically secure nonce
         nonce = secrets.token_hex(32)  # 256-bit nonce
         
@@ -609,9 +659,13 @@ class QuantumAnnealingConsensus:
         if self.is_nonce_used(nonce):
             # Generate new nonce if collision (very unlikely)
             nonce = secrets.token_hex(32)
+        nonce_time = time.time() - nonce_start
+        print(f"         🔐 Nonce generation: {nonce_time * 1000:.3f}ms")
         
         send_time = time.time()
         
+        # STEP 4: ProbeRequest Creation and Signing
+        request_creation_start = time.time()
         # 1. Create ProbeRequest as per paper specification
         probe_request = {
             'source_id': source_node,
@@ -625,17 +679,25 @@ class QuantumAnnealingConsensus:
         try:
             request_signature = self.sign_message(source_node, request_message)
         except ValueError:
-            # Source node doesn't have keys, generate them
-            self.generate_node_keys(source_node)
+            # Source node doesn't have keys, load from file or generate
+            self.ensure_node_keys(source_node)
             request_signature = self.sign_message(source_node, request_message)
+        request_creation_time = time.time() - request_creation_start
+        print(f"         📝 ProbeRequest creation & signing: {request_creation_time * 1000:.3f}ms")
         
+        # STEP 5: Network Latency Measurement
+        latency_start = time.time()
         # 2. Measure actual network latency (paper-compliant measurement)
         actual_latency = self.measure_real_network_latency(source_node, target_node)
         receipt_time = send_time + actual_latency
+        latency_time = time.time() - latency_start
+        print(f"         🌐 Latency measurement: {latency_time * 1000:.3f}ms (measured: {actual_latency * 1000:.1f}ms)")
         
         # Paper's intention: Enable witness latency verification by recording timestamps
         # Store witness observation times for later triangulation verification
         
+        # STEP 6: TargetReceipt Creation and Signing
+        target_creation_start = time.time()
         # 3. Create TargetReceipt as per paper
         target_receipt_data = {
             'original_request': probe_request,
@@ -648,17 +710,23 @@ class QuantumAnnealingConsensus:
         try:
             target_signature = self.sign_message(target_node, target_message)
         except ValueError:
-            self.generate_node_keys(target_node)
+            self.ensure_node_keys(target_node)
             target_signature = self.sign_message(target_node, target_message)
         
         target_receipt = {**target_receipt_data, 'target_signature': target_signature}
+        target_creation_time = time.time() - target_creation_start
+        print(f"         📋 TargetReceipt creation & signing: {target_creation_time * 1000:.3f}ms")
         
+        # STEP 7: Witness Collection and Signing
+        witness_start = time.time()
         # 4. Collect WitnessReceipts with cryptographic signatures
         witness_receipts = []
         valid_witnesses = 0
         
+        witness_individual_times = []
         for witness in available_witnesses[:self.witness_quorum_size * 2]:  # Try more witnesses than needed
             try:
+                witness_individual_start = time.time()
                 # Paper's intention: Witness independently observes probe timing for latency triangulation
                 witness_observation_time = send_time + self.measure_real_network_latency(source_node, witness) + self.measure_real_network_latency(witness, target_node)
                 
@@ -678,6 +746,9 @@ class QuantumAnnealingConsensus:
                 witness_receipts.append(witness_receipt)
                 valid_witnesses += 1
                 
+                witness_individual_time = time.time() - witness_individual_start
+                witness_individual_times.append(witness_individual_time)
+                
                 # Stop when we have enough witnesses
                 if valid_witnesses >= self.witness_quorum_size:
                     break
@@ -686,11 +757,21 @@ class QuantumAnnealingConsensus:
                 # Witness doesn't have keys or other error, skip
                 continue
         
+        witness_time = time.time() - witness_start
+        avg_witness_time = sum(witness_individual_times) / len(witness_individual_times) if witness_individual_times else 0
+        print(f"         👥 Witness processing: {witness_time * 1000:.3f}ms total, {avg_witness_time * 1000:.3f}ms avg per witness ({valid_witnesses} witnesses)")
+        
+        # STEP 8: Quorum Verification
+        quorum_start = time.time()
         # 5. Verify quorum requirement (k/3 minimum as per paper)
         if valid_witnesses < max(1, self.witness_quorum_size // 3):
-            print(f"⚠️  Insufficient witnesses: {valid_witnesses} < {self.witness_quorum_size // 3}")
+            print(f"         ⚠️  Insufficient witnesses: {valid_witnesses} < {self.witness_quorum_size // 3}")
             # Continue with available witnesses for simulation
+        quorum_time = time.time() - quorum_start
+        print(f"         ✅ Quorum verification: {quorum_time * 1000:.3f}ms")
         
+        # STEP 9: ProbeProof Assembly
+        assembly_start = time.time()
         # 6. Create complete ProbeProof structure
         probe_proof = {
             'ProbeRequest': {
@@ -708,7 +789,11 @@ class QuantumAnnealingConsensus:
                 'nonce_fresh': not self.is_nonce_used(nonce)
             }
         }
+        assembly_time = time.time() - assembly_start
+        print(f"         📦 ProbeProof assembly: {assembly_time * 1000:.3f}ms")
         
+        # STEP 10: Final Processing
+        final_start = time.time()
         # Mark nonce as used for replay protection
         self.mark_nonce_used(nonce)
         
@@ -729,6 +814,16 @@ class QuantumAnnealingConsensus:
         # Update node metrics based on verified probe
         self.update_node_metrics_from_verified_probe(target_node, probe_proof)
         
+        final_time = time.time() - final_start
+        probe_total_time = time.time() - probe_total_start
+        
+        print(f"         🏁 Final processing: {final_time * 1000:.3f}ms")
+        print(f"      ✅ Probe complete: {probe_total_time * 1000:.3f}ms total")
+        print(f"         📊 Breakdown: Keys({key_loading_time * 1000:.1f}ms) + Witnesses({witness_setup_time * 1000:.1f}ms) + ")
+        print(f"             Nonce({nonce_time * 1000:.1f}ms) + Request({request_creation_time * 1000:.1f}ms) + ")
+        print(f"             Latency({latency_time * 1000:.1f}ms) + Target({target_creation_time * 1000:.1f}ms) + ")
+        print(f"             WitnessProc({witness_time * 1000:.1f}ms) + Assembly({assembly_time * 1000:.1f}ms) + Final({final_time * 1000:.1f}ms)")
+        
         return probe_proof
 
     def get_top_candidate_nodes(self, vrf_output: str, max_candidates: int = None) -> List[str]:
@@ -736,21 +831,32 @@ class QuantumAnnealingConsensus:
         Get top candidate nodes for quantum optimization to improve scalability.
         For 1000+ nodes, only consider the most promising candidates.
         """
+        import time
+        
         # Use scalable candidate limit based on network size
         total_nodes = len(self.nodes)
         if max_candidates is None:
             max_candidates = SCALABILITY_CONFIG.get_candidate_limit(total_nodes)
-            
+        
         # Calculate suitability scores for all active nodes
-        candidate_scores = []
+        active_filter_start = time.time()
         current_time = time.time()
         active_nodes = [node_id for node_id, node_data in self.nodes.items() 
                        if current_time - node_data.get('last_seen', 0) < self.node_active_threshold]
+        active_filter_time = time.time() - active_filter_start
+        print(f"    🔍 Active node filtering: {active_filter_time * 1000:.3f}ms ({len(active_nodes)}/{total_nodes} active)")
         
         # Periodic cleanup for large networks
+        cleanup_start = time.time()
         if total_nodes > 100 and random.random() < 0.1:  # 10% chance
             self.cleanup_performance_data()
+        cleanup_time = time.time() - cleanup_start
+        if cleanup_time > 0.001:  # Only log if cleanup actually happened
+            print(f"    🧹 Performance cleanup: {cleanup_time * 1000:.3f}ms")
         
+        # Score calculation and sorting
+        scoring_start = time.time()
+        candidate_scores = []
         for node_id in active_nodes:
             score = self.calculate_effective_score(node_id, vrf_output)
             candidate_scores.append((node_id, score))
@@ -758,34 +864,59 @@ class QuantumAnnealingConsensus:
         # Sort by score (descending) and take top candidates
         candidate_scores.sort(key=lambda x: x[1], reverse=True)
         top_candidates = [node_id for node_id, _ in candidate_scores[:max_candidates]]
+        scoring_time = time.time() - scoring_start
+        print(f"    📊 Score calculation & sorting: {scoring_time * 1000:.3f}ms (limit: {max_candidates})")
         
         return top_candidates
 
     def execute_scalable_probe_protocol(self, candidate_nodes: List[str]):
         """
-        Execute full probe protocol for comprehensive verification.
-        Uses complete O(n²) probing for maximum security and accuracy.
+        Execute optimized probe protocol based on network size.
+        Uses cached protocol for small networks (≤4 nodes) and full protocol for larger networks.
         """
+        import time
+        
         total_candidates = len(candidate_nodes)
+        protocol_start = time.time()
         
-        # Always use full probe protocol for maximum security and verification
-        print(f"🔍 Executing FULL probe protocol for {total_candidates} nodes")
-        print(f"   This will perform {total_candidates * (total_candidates - 1)} probe operations")
-        
-        # Execute full O(n²) probe protocol regardless of network size
-        self.execute_full_probe_protocol(candidate_nodes)
+        # Use cached protocol for small networks to optimize performance
+        if total_candidates <= 5:
+            print(f"    � Using CACHED probe protocol for {total_candidates} nodes (small network optimization)")
+            self.execute_cached_probe_protocol(candidate_nodes)
+            protocol_time = time.time() - protocol_start
+            print(f"    ⚡ Cached protocol completed in: {protocol_time * 1000:.3f}ms")
+        else:
+            print(f"    � Using FULL probe protocol for {total_candidates} nodes")
+            print(f"    🔄 This will perform {total_candidates * (total_candidates - 1)} probe operations")
+            self.execute_full_probe_protocol(candidate_nodes)
+            protocol_time = time.time() - protocol_start
+            print(f"    🔍 Full protocol completed in: {protocol_time * 1000:.3f}ms")
     
     def execute_full_probe_protocol(self, nodes: List[str]):
         """Execute full O(n²) probe protocol for small networks"""
+        import time
+        
+        probe_count = 0
+        total_probe_time = 0
+        
         for source in nodes:
             for target in nodes:
                 if source != target:
+                    probe_start = time.time()
+                    
                     witness_pool = [n for n in nodes if n not in [source, target]]
                     witness_count = min(self.witness_quorum_size, len(witness_pool))
                     
                     if witness_count > 0:
                         witnesses = random.sample(witness_pool, witness_count)
                         self.execute_probe_protocol(source, target, witnesses)
+                    
+                    probe_time = time.time() - probe_start
+                    total_probe_time += probe_time
+                    probe_count += 1
+        
+        avg_probe_time = total_probe_time / probe_count if probe_count > 0 else 0
+        print(f"      🎯 Full Protocol Stats: {probe_count} probes, avg {avg_probe_time * 1000:.3f}ms per probe")
 
     def execute_minimal_probe_protocol(self, nodes: List[str]):
         """Execute minimal probe protocol for high-throughput consensus"""
@@ -829,11 +960,14 @@ class QuantumAnnealingConsensus:
 
     def execute_cached_probe_protocol(self, nodes: List[str]):
         """Execute ultra-fast cached probe protocol for maximum throughput"""
+        import time
+        
         # ULTRA OPTIMIZATION: Use cached/simulated probe results with minimal computation
         current_time = time.time()
         
         # Only do 1-2 actual probes and simulate the rest for speed
         actual_probes = min(2, len(nodes))
+        direct_probe_time = 0
         
         for i in range(actual_probes):
             source = nodes[i % len(nodes)]
@@ -841,9 +975,12 @@ class QuantumAnnealingConsensus:
             
             if source != target:
                 # Ultra-fast direct probe without cryptographic overhead
+                probe_start = time.time()
                 self.execute_direct_probe(source, target)
+                direct_probe_time += time.time() - probe_start
         
         # Simulate all other node connectivity with cached results
+        simulation_start = time.time()
         for node_id in nodes:
             if node_id in self.nodes:
                 self.nodes[node_id]['last_seen'] = current_time
@@ -851,6 +988,9 @@ class QuantumAnnealingConsensus:
                     self.nodes[node_id]['latency'] = 0.025  # 25ms default
                 if 'throughput' not in self.nodes[node_id]:
                     self.nodes[node_id]['throughput'] = 15.0  # Default throughput
+        simulation_time = time.time() - simulation_start
+        
+        print(f"      ⚡ Cached Protocol: {actual_probes} direct probes ({direct_probe_time * 1000:.3f}ms), simulation ({simulation_time * 1000:.3f}ms)")
 
     def verify_probe_proof(self, proof, verifier_node: str = "default") -> bool:
         """
@@ -1224,11 +1364,7 @@ class QuantumAnnealingConsensus:
                 
                 signature = private_key.sign(
                     message,
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.MAX_LENGTH
-                    ),
-                    hashes.SHA256()
+                    ec.ECDSA(hashes.SHA256())
                 )
                 
                 witness_proof = ProbeProof(
@@ -2333,6 +2469,8 @@ class QuantumAnnealingConsensus:
         - quadratic_coefficients: Qij values  
         - constant_offset: C value
         """
+        import time
+        
         # Use candidate nodes if provided, otherwise use all nodes
         nodes = candidate_nodes if candidate_nodes is not None else list(self.nodes.keys())
         n = len(nodes)
@@ -2341,11 +2479,15 @@ class QuantumAnnealingConsensus:
             return {}, {}, 0.0
         
         # Calculate effective scores for all nodes
+        score_start = time.time()
         effective_scores = {}
         for node_id in nodes:
             effective_scores[node_id] = self.calculate_effective_score(node_id, vrf_output)
+        score_time = time.time() - score_start
+        print(f"    🧮 Score calculation: {score_time * 1000:.3f}ms for {n} nodes")
         
         # QUBO coefficients based on paper derivation
+        coeff_start = time.time()
         linear_coefficients = {}  # Qii = -(P + S'i)
         quadratic_coefficients = {}  # Qij = 2P for i < j
         
@@ -2357,6 +2499,8 @@ class QuantumAnnealingConsensus:
         for i in range(n):
             for j in range(i + 1, n):
                 quadratic_coefficients[(i, j)] = 2 * self.penalty_coefficient
+        coeff_time = time.time() - coeff_start
+        print(f"    🔢 Coefficient generation: {coeff_time * 1000:.3f}ms ({len(linear_coefficients)} linear, {len(quadratic_coefficients)} quadratic)")
         
         constant_offset = self.penalty_coefficient
         
@@ -2374,6 +2518,8 @@ class QuantumAnnealingConsensus:
         Uses SimulatedAnnealingSampler which mimics the behavior of a real quantum annealer.
         In production, this would interface with actual D-Wave quantum hardware.
         """
+        import time
+        
         # Use candidate nodes if provided, otherwise fall back to all nodes
         nodes = candidate_nodes if candidate_nodes is not None else list(self.nodes.keys())
         n = len(nodes)
@@ -2382,10 +2528,12 @@ class QuantumAnnealingConsensus:
             return []
         
         if n == 1:
+            print(f"    🎯 Single node optimization - direct selection")
             return [1]  # Only one node, select it
         
         try:
             # Create BinaryQuadraticModel (BQM) for QUBO problem
+            bqm_start = time.time()
             bqm = BinaryQuadraticModel('BINARY')
             
             # Add linear coefficients (biases)
@@ -2398,8 +2546,11 @@ class QuantumAnnealingConsensus:
             # Add quadratic coefficients (couplings)
             for (i, j), coeff in quadratic_coeff.items():
                 bqm.add_interaction(i, j, coeff)
+            bqm_time = time.time() - bqm_start
+            print(f"    🔬 BQM creation: {bqm_time * 1000:.3f}ms")
             
             # Create sampler - using SimulatedAnnealingSampler for realistic quantum annealing simulation
+            sampler_start = time.time()
             sampler = SimulatedAnnealingSampler()
             
             # Sample multiple times to get the best solution (scale with network size)
@@ -2407,16 +2558,22 @@ class QuantumAnnealingConsensus:
             
             # Configure annealing parameters for scalability
             annealing_time = 20.0  # microseconds (typical for D-Wave)
+            sampler_time = time.time() - sampler_start
+            print(f"    ⚛️  Sampler setup: {sampler_time * 1000:.3f}ms (reads={num_reads})")
             
             # Solve the QUBO problem
+            annealing_start = time.time()
             response = sampler.sample(
                 bqm,
                 num_reads=num_reads,
                 annealing_time=annealing_time,
                 seed=int(time.time())  # Reproducible randomness
             )
+            annealing_actual_time = time.time() - annealing_start
+            print(f"    🌊 Annealing process: {annealing_actual_time * 1000:.3f}ms")
             
             # Get the best solution (lowest energy)
+            solution_start = time.time()
             best_sample = response.first.sample
             best_energy = response.first.energy
             
@@ -2424,16 +2581,19 @@ class QuantumAnnealingConsensus:
             solution = [0] * n
             for i in range(n):
                 solution[i] = best_sample.get(i, 0)
+            solution_time = time.time() - solution_start
+            print(f"    📊 Solution extraction: {solution_time * 1000:.3f}ms (energy={best_energy:.3f})")
             
             # Validate solution (should select exactly one node for our constraint)
             selected_count = sum(solution)
             
             if selected_count == 1:
                 # Perfect solution found
+                print(f"    ✅ Valid solution: 1 node selected")
                 return solution
             elif selected_count == 0:
                 # No node selected - fallback to highest score node
-                print(f"⚠️  Quantum annealer found no solution, using fallback")
+                print(f"    ⚠️  No node selected, using fallback")
                 best_score_idx = 0
                 best_score = float('-inf')
                 for i in range(n):
@@ -2500,6 +2660,7 @@ class QuantumAnnealingConsensus:
         import time
         
         total_start = time.time()
+        print("🚀 Starting Quantum Annealing Consensus Process...")
         
         if not self.nodes:
             return None
@@ -2508,11 +2669,13 @@ class QuantumAnnealingConsensus:
         vrf_start = time.time()
         vrf_output = hashlib.sha256(last_block_hash.encode()).hexdigest()
         vrf_time = time.time() - vrf_start
+        print(f"✅ STEP 1 - VRF Generation: {vrf_time * 1000:.3f}ms")
         
         # STEP 2: Get top candidate nodes for scalable selection (1000+ nodes support)
         candidate_start = time.time()
         candidate_nodes = self.get_top_candidate_nodes(vrf_output)
         candidate_time = time.time() - candidate_start
+        print(f"✅ STEP 2 - Candidate Selection: {candidate_time * 1000:.3f}ms (selected {len(candidate_nodes)} from {len(self.nodes)} nodes)")
 
         if not candidate_nodes:
             # Fallback to any available node
@@ -2523,16 +2686,19 @@ class QuantumAnnealingConsensus:
         probe_start = time.time()
         self.execute_scalable_probe_protocol(candidate_nodes)
         probe_time = time.time() - probe_start
+        print(f"✅ STEP 3 - Probe Protocol: {probe_time * 1000:.3f}ms")
         
         # STEP 4: Formulate QUBO problem with candidate nodes only
         qubo_start = time.time()
         linear_coeff, quadratic_coeff, constant = self.formulate_qubo_problem(vrf_output, candidate_nodes)
         qubo_time = time.time() - qubo_start
+        print(f"✅ STEP 4 - QUBO Formulation: {qubo_time * 1000:.3f}ms")
         
         # STEP 5: Solve using quantum annealer (simulated) with candidate nodes
         annealer_start = time.time()
         solution = self.simulate_quantum_annealer(linear_coeff, quadratic_coeff, candidate_nodes)
         annealer_time = time.time() - annealer_start
+        print(f"✅ STEP 5 - Quantum Annealing: {annealer_time * 1000:.3f}ms")
         
         # STEP 6: Extract selected node from candidates
         selection_start = time.time()
@@ -2540,6 +2706,10 @@ class QuantumAnnealingConsensus:
             if selected == 1 and i < len(candidate_nodes):
                 selection_time = time.time() - selection_start
                 total_time = time.time() - total_start
+                
+                print(f"✅ STEP 6 - Final Selection: {selection_time * 1000:.3f}ms")
+                print(f"🎯 CONSENSUS COMPLETE: {total_time * 1000:.3f}ms total - Selected: {candidate_nodes[i]}")
+                print("=" * 80)
                 
                 # Log detailed timing breakdown
                 self.logger.info({
@@ -2570,6 +2740,10 @@ class QuantumAnnealingConsensus:
         
         fallback_time = time.time() - fallback_start
         total_time = time.time() - total_start
+        
+        print(f"⚠️  STEP 7 - Fallback Selection: {fallback_time * 1000:.3f}ms")
+        print(f"🎯 CONSENSUS COMPLETE (FALLBACK): {total_time * 1000:.3f}ms total - Selected: {best_node}")
+        print("=" * 80)
         
         # Log timing for fallback case
         self.logger.info({

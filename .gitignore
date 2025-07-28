@@ -9,6 +9,16 @@
 /blockchain/logs/**/
 *.log
 node_debug.log
+node*.log
+debug*.log
+consensus*.log
+quantum*.log
+blockchain*.log
+transaction*.log
+performance*.log
+error*.log
+access*.log
+application*.log
 
 # Python cache
 __pycache__/
@@ -29,8 +39,17 @@ Thumbs.db
 *_temp.py
 *_debug.py
 *_old.py
+*_test.py
+*_backup.py
 test_temp*.py
 debug_*.py
+temp_*.py
+temporary_*.py
+scratch_*.py
+playground_*.py
+experiment_*.py
+demo_*.py
+sample_*.py
 
 # Distribution / packaging
 .Python
@@ -94,6 +113,109 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Cryptographic Keys and Security Files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+/blockchain/keys/
+/blockchain/keys/**
+keys/
+**/keys/
+*_private_key.*
+*_public_key.*
+*_key.pem
+genesis_*.pem
+node*_private_key.pem
+node*_public_key.pem
+*.private
+*.public
+*.rsa
+*.dsa
+*.ecdsa
+
+# Backup and versioning directories
+keys_rsa_backup/
+**/keys_rsa_backup/
+backup/
+backups/
+*_backup/
+*-backup/
+versions/
+
+# Cache and Temporary Files
+*.cache
+*.tmp
+*.temp
+*~
+.temp/
+temp/
+cache/
+.cache/
+*.backup
+*.bak
+*.old
+*.orig
+*.rej
+*.swp
+*.swo
+.tmp/
+tmp/
+
+# Python specific cache and temporary files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.Python
+*.so
+.pytest_cache/
+.coverage
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Performance and monitoring files
+*.prof
+*.profile
+*.trace
+*.out
+*.json.gz
+*_metrics_*.json
+*_performance_*.json
+*_report_*.json
+blockchain_performance_report_*.json
+real_transaction_metrics_*.json
+
+# Runtime and process files
+*.pid
+*.lock
+*.lockfile
+nohup.out
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Configuration overrides
+*_local.json
+*_local.yaml
+*_local.yml
+local_*.json
+local_*.yaml
+local_*.yml
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Docker
 .dockerignore

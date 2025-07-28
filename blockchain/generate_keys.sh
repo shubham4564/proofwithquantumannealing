@@ -26,12 +26,12 @@ if [ ! -f "keys/genesis_private_key.pem" ]; then
     echo "🔑 Genesis keys not found. Creating genesis key pair..."
     echo -n "   🏛️  Genesis: Generating key pair... "
     
-    # Generate RSA private key in PKCS#8 format for genesis
-    openssl genpkey -algorithm RSA -out "keys/genesis_private_key.pem" 2>/dev/null
+    # Generate ECDSA P-256 private key in PKCS#8 format for genesis
+    openssl genpkey -algorithm EC -out "keys/genesis_private_key.pem" -pkeyopt ec_paramgen_curve:P-256 2>/dev/null
     
     if [ $? -eq 0 ]; then
         # Generate public key from private key
-        openssl rsa -pubout -in "keys/genesis_private_key.pem" -out "keys/genesis_public_key.pem" 2>/dev/null
+        openssl ec -pubout -in "keys/genesis_private_key.pem" -out "keys/genesis_public_key.pem" 2>/dev/null
         
         if [ $? -eq 0 ]; then
             echo "✅ Done"
@@ -64,12 +64,12 @@ for i in $(seq 2 $NUM_NODES); do
     else
         echo -n "   🔐 Node $i: Generating key pair... "
         
-        # Generate RSA private key in PKCS#8 format (matches existing node keys)
-        openssl genpkey -algorithm RSA -out "$private_key_file" 2>/dev/null
+        # Generate ECDSA P-256 private key in PKCS#8 format (replacing RSA)
+        openssl genpkey -algorithm EC -out "$private_key_file" -pkeyopt ec_paramgen_curve:P-256 2>/dev/null
         
         if [ $? -eq 0 ]; then
             # Generate public key from private key
-            openssl rsa -pubout -in "$private_key_file" -out "$public_key_file" 2>/dev/null
+            openssl ec -pubout -in "$private_key_file" -out "$public_key_file" 2>/dev/null
             
             if [ $? -eq 0 ]; then
                 echo "✅ Done"

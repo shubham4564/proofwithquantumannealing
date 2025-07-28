@@ -15,7 +15,7 @@ sys.path.append(str(Path(__file__).parent))
 from blockchain.blockchain import Blockchain
 from blockchain.transaction.transaction import Transaction
 from blockchain.transaction.wallet import Wallet
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec
 import json
 
 def create_test_wallet(name: str) -> Wallet:
@@ -81,8 +81,8 @@ def main():
         blockchain = Blockchain(
             node_id=f"node{i+1}",
             key_file=None,  # Use generated keys
-            private_key=wallet.private_key,
-            public_key=wallet.public_key
+            private_key=wallet.key_pair,
+            public_key=wallet.key_pair.public_key()
         )
         blockchains.append(blockchain)
         

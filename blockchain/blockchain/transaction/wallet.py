@@ -2,7 +2,7 @@ import logging
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa, utils
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from blockchain.block import Block
 from blockchain.transaction.transaction import Transaction
@@ -11,10 +11,7 @@ from blockchain.utils.helpers import BlockchainUtils
 
 class Wallet:
     def __init__(self):
-        self.key_pair = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-        )
+        self.key_pair = ec.generate_private_key(ec.SECP256R1())
 
     def from_key(self, key_input):
         """
@@ -54,10 +51,7 @@ class Wallet:
         data_hash = BlockchainUtils.hash(data)
         signature = self.key_pair.sign(
             data_hash,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH
-            ),
-            utils.Prehashed(hashes.SHA256()),
+            ec.ECDSA(hashes.SHA256())
         )
         return signature.hex()
 
@@ -73,11 +67,7 @@ class Wallet:
             public_key.verify(
                 signature,
                 data_hash,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH,
-                ),
-                utils.Prehashed(hashes.SHA256()),
+                ec.ECDSA(hashes.SHA256())
             )
             return True
         except InvalidSignature:

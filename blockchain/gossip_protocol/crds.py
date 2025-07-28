@@ -12,7 +12,7 @@ import json
 from typing import Dict, List, Optional, Set, Any
 from dataclasses import dataclass, asdict
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import ec
 import logging
 
 logger = logging.getLogger(__name__)
