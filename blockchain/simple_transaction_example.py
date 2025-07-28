@@ -111,15 +111,15 @@ def check_node_health(node_port):
     print(f"\n🔍 Checking node health on port {node_port}...")
     
     try:
-        url = f"http://localhost:{node_port}/api/v1/health/"
+        url = f"http://localhost:{node_port}/api/v1/blockchain/"
         response = requests.get(url, timeout=5)
         
         if response.status_code == 200:
-            health_data = response.json()
+            blockchain_data = response.json()
             print("✅ Node is healthy and responsive")
-            print(f"   📊 Status: {health_data.get('status', 'unknown')}")
-            print(f"   🆔 Node ID: {health_data.get('node_id', 'unknown')}")
-            print(f"   ⏱️ Uptime: {health_data.get('uptime', 'unknown')}")
+            print(f"   📊 Status: Active")
+            print(f"   📦 Blocks: {len(blockchain_data.get('blocks', []))}")
+            print(f"   🔗 Blockchain endpoint working")
             return True
         else:
             print(f"❌ Node health check failed: HTTP {response.status_code}")

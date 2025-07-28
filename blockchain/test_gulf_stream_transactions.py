@@ -300,8 +300,8 @@ class GulfStreamTransactionTester:
                     if len(blocks) > 1:  # Skip genesis block
                         for j, block in enumerate(blocks[1:], 1):  # Skip genesis
                             tx_count = len(block.get('transactions', []))
-                            forger = block.get('forger', 'Unknown')[:20]
-                            print(f"   Block {j}: {tx_count} transactions, Forger: {forger}...")
+                            block_proposer = block.get('forger', 'Unknown')[:20]  # Note: 'forger' field name kept for compatibility
+                            print(f"   Block {j}: {tx_count} transactions, Block Proposer: {block_proposer}...")
                     
                     # Check for PoH sequences if available
                     if blocks:

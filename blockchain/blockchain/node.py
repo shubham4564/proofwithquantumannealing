@@ -5,6 +5,7 @@ from threading import Timer
 from api.main import NodeAPI
 from blockchain.blockchain import Blockchain
 from blockchain.consensus.gulf_stream import GulfStreamProcessor
+from blockchain.consensus.tpu_listener import TPUListener
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -72,7 +73,18 @@ class Node:
                 logger.warning(f"Failed to reconfigure gossip node ports: {e}")
         
         # Initialize Gulf Stream for transaction forwarding
-        self.gulf_stream = GulfStreamProcessor(self.blockchain.leader_schedule)
+        self.gulf_stream = GulfStreamProcessor(self.blockchain.leader_schedule, self.wallet.public_key_string())
+        
+        # Initialize TPU Listener for receiving transactions as leader
+        self.tpu_listener = TPUListener(
+            node_public_key=self.wallet.public_key_string(),
+            tpu_port=self.tpu_port,
+            transaction_handler=self.handle_transaction
+        )
+        
+        # Start TPU listener immediately
+        self.tpu_listener.start_listening()
+        logger.info(f"TPU listener started on port {self.tpu_port} for leader transaction reception")
         
         # Initialize Fast Gulf Stream for UDP forwarding to current/next leaders
         self.fast_gulf_stream = FastGulfStreamForwarder(
@@ -80,7 +92,7 @@ class Node:
             leader_schedule=self.blockchain.leader_schedule,
             port_base=15000  # Use ports 15000-15999 for Gulf Stream UDP
         )
-        logger.info("Gulf Stream processor initialized")
+        logger.info("Gulf Stream processor initialized with TPU integration")
         
         # Initialize slot-based block production
         self.slot_producer = SlotBasedBlockProducer(self)
@@ -442,7 +454,7 @@ class Node:
             return
 
         # Check if block proposal is needed
-        block_proposal_required = self.transaction_pool.forging_required()  # Method name kept for compatibility
+        block_proposal_required = self.transaction_pool.block_proposal_required()  # Use updated method
         
         # ENHANCED: Current leader should create blocks more frequently if they have transactions
         current_leader = self.blockchain.leader_schedule.get_current_leader()
@@ -1153,37 +1165,53 @@ class Node:
                     "transactions_available": len(self.transaction_pool.transactions)
                 })
                 
-                # Get transactions for this block using Fast Gulf Stream + Gulf Stream + PoH ordering
+                # LEADER MUST PACK ALL TRANSACTIONS - Get from ALL sources
                 
-                # PRIORITY 1: Get Fast Gulf Stream transactions (UDP forwarded)
+                # PRIORITY 1: Get TPU transactions (direct UDP from Gulf Stream)
+                tpu_transactions = []
+                tpu_slot_data = self.tpu_listener.get_slot_transactions()
+                for tpu_entry in tpu_slot_data:
+                    tpu_transactions.append(tpu_entry['transaction'])
+                
+                # PRIORITY 2: Get Fast Gulf Stream transactions (UDP forwarded)
                 fast_gulf_stream_transactions = self.fast_gulf_stream.get_transactions_for_leader(my_public_key)
                 
-                # PRIORITY 2: Get regular Gulf Stream transactions (in-memory forwarded)
+                # PRIORITY 3: Get regular Gulf Stream transactions (in-memory forwarded)
                 gulf_stream_transactions = self.blockchain.gulf_stream_node.get_transactions_for_leader(my_public_key)
                 
-                # PRIORITY 3: Combine with local transaction pool 
-                all_available_transactions = fast_gulf_stream_transactions + gulf_stream_transactions + self.transaction_pool.transactions
+                # PRIORITY 4: Get local transaction pool transactions
+                local_transactions = self.transaction_pool.transactions.copy()
                 
-                # PoH ordering: Let blockchain order transactions with Proof of History
-                if all_available_transactions:
-                    transactions_for_block = all_available_transactions  # Blockchain will apply PoH ordering
-                    logger.info({
-                        "message": "Using Fast Gulf Stream + Gulf Stream + local transactions for block with PoH ordering",
-                        "fast_gulf_stream_count": len(fast_gulf_stream_transactions),
-                        "gulf_stream_count": len(gulf_stream_transactions),
-                        "local_pool_count": len(self.transaction_pool.transactions),
-                        "total_transactions": len(all_available_transactions),
-                        "will_apply_poh_ordering": True
-                    })
-                else:
-                    # Create empty block for slot (Solana-style: every slot gets a block)
-                    transactions_for_block = []
-                    logger.info({
-                        "message": "Creating empty block for slot (no transactions available)",
-                        "gulf_stream_count": 0,
-                        "local_pool_count": 0,
-                        "slot_based_creation": True
-                    })
+                # CRITICAL: Leader MUST pack ALL received transactions (Solana behavior)
+                all_available_transactions = (
+                    tpu_transactions + 
+                    fast_gulf_stream_transactions + 
+                    gulf_stream_transactions + 
+                    local_transactions
+                )
+                
+                # Remove duplicates while preserving order
+                seen_tx_ids = set()
+                unique_transactions = []
+                for tx in all_available_transactions:
+                    if tx.id not in seen_tx_ids:
+                        unique_transactions.append(tx)
+                        seen_tx_ids.add(tx.id)
+                
+                transactions_for_block = unique_transactions
+                
+                logger.info({
+                    "message": "Leader packing ALL received transactions (Solana-style)",
+                    "tpu_transactions": len(tpu_transactions),
+                    "fast_gulf_stream_count": len(fast_gulf_stream_transactions),
+                    "gulf_stream_count": len(gulf_stream_transactions),
+                    "local_pool_count": len(local_transactions),
+                    "total_before_dedup": len(all_available_transactions),
+                    "total_after_dedup": len(unique_transactions),
+                    "duplicates_removed": len(all_available_transactions) - len(unique_transactions),
+                    "slot_based_creation": True,
+                    "pack_all_policy": "ENABLED"
+                })
                 
                 # Allow block proposal with any number of transactions (including zero)
                 # Every slot, create a block regardless of transaction count or size
@@ -1236,6 +1264,9 @@ class Node:
                         "parallel_efficiency": f"{getattr(block, 'parallel_efficiency', 100):.1f}%"
                     }
                 })
+                
+                # CLEAN UP: Clear TPU slot transactions after successful block creation
+                self.tpu_listener.clear_slot_transactions()
                 
                 # Remove only the transactions that were included in the block
                 self.transaction_pool.remove_from_pool(block.transactions)

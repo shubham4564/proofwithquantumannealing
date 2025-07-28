@@ -3,8 +3,9 @@
 # Start N blockchain nodes with different ports and keys
 # Usage: ./start_10_nodes.sh [NUMBER_OF_NODES]
 # Default: 10 nodes if no parameter provided
-# Node ports: 10000-1000N
-# API ports: 11000-1100N
+# Node ports: 10000-1000N (P2P communication)
+# API ports: 11000-1100N (HTTP REST API)
+# TPU ports: 13000-1300N (UDP Transaction Processing Unit for Gulf Stream)
 
 # Get number of nodes from command line argument, default to 10
 NUM_NODES=${1:-10}
@@ -33,14 +34,14 @@ start_node() {
     
     # Use genesis key for node 1, or generate/use existing keys for other nodes
     if [ $node_num -eq 1 ]; then
-        key_file="keys/node1_private_key.pem"
+        key_file="keys/genesis_private_key.pem"
     elif [ ! -f "$key_file" ]; then
         # If node key doesn't exist, use staker key as fallback
         if [ -f "keys/staker_private_key.pem" ]; then
             key_file="keys/staker_private_key.pem"
         else
             echo "⚠️  Warning: Key file $key_file not found, using genesis key as fallback"
-            key_file="keys/node1_private_key.pem"
+            key_file="keys/genesis_private_key.pem"
         fi
     fi
     
@@ -70,6 +71,7 @@ echo ""
 echo "✅ All $NUM_NODES nodes started!"
 echo "📡 Node ports: 10000-$((10000 + NUM_NODES - 1))"
 echo "🌐 API ports: 11000-$((11000 + NUM_NODES - 1))"
+echo "⚡ TPU ports: 13000-$((13000 + NUM_NODES - 1))"
 echo "📝 Logs: logs/node1.log - logs/node${NUM_NODES}.log"
 echo ""
 echo "⏳ Wait 10 seconds for nodes to initialize and connect..."
@@ -77,32 +79,70 @@ sleep 10
 
 echo "🔍 Checking node status..."
 active_nodes=0
+active_apis=0
+active_tpus=0
+
 for i in $(seq 1 $NUM_NODES); do
+    node_port=$((10000 + i - 1))
     api_port=$((11000 + i - 1))
-    echo -n "Node $i (API $api_port): "
+    tpu_port=$((13000 + i - 1))
+    
+    echo -n "Node $i: "
+    
+    # Check API endpoint
+    api_status="❌"
     if curl -s "http://localhost:$api_port/api/v1/blockchain/" >/dev/null 2>&1; then
-        echo "✅ Running"
+        api_status="✅"
+        ((active_apis++))
         ((active_nodes++))
-    else
-        echo "❌ Not responding"
     fi
+    
+    # Check TPU port (UDP port check)
+    tpu_status="❌"
+    if command -v nc >/dev/null 2>&1; then
+        # Use netcat to check if UDP port is listening
+        if nc -u -z localhost $tpu_port >/dev/null 2>&1; then
+            tpu_status="✅"
+            ((active_tpus++))
+        elif lsof -i :$tpu_port >/dev/null 2>&1; then
+            # Fallback: check if any process is using the port
+            tpu_status="✅"
+            ((active_tpus++))
+        fi
+    else
+        # Fallback: use lsof if netcat is not available
+        if lsof -i :$tpu_port >/dev/null 2>&1; then
+            tpu_status="✅"
+            ((active_tpus++))
+        fi
+    fi
+    
+    echo "API($api_port): $api_status | TPU($tpu_port): $tpu_status"
 done
 
 echo ""
 echo "📊 Network Summary:"
 echo "   🌐 Total Nodes Configured: $NUM_NODES"
-echo "   ✅ Active Nodes: $active_nodes"
+echo "   ✅ Active APIs: $active_apis/$NUM_NODES"
+echo "   ⚡ Active TPUs: $active_tpus/$NUM_NODES"
+echo "   📡 Overall Health: $active_nodes/$NUM_NODES nodes responding"
+
 if command -v bc >/dev/null 2>&1; then
     health_pct=$(echo "scale=1; $active_nodes * 100 / $NUM_NODES" | bc -l 2>/dev/null || echo "0")
-    echo "   📈 Network Health: ${health_pct}%"
+    tpu_health_pct=$(echo "scale=1; $active_tpus * 100 / $NUM_NODES" | bc -l 2>/dev/null || echo "0")
+    echo "   📈 API Health: ${health_pct}%"
+    echo "   ⚡ TPU Health: ${tpu_health_pct}%"
 else
-    echo "   📈 Network Health: $active_nodes/$NUM_NODES nodes"
+    echo "   📈 API Health: $active_apis/$NUM_NODES"
+    echo "   ⚡ TPU Health: $active_tpus/$NUM_NODES"
 fi
 
-if [ $active_nodes -eq $NUM_NODES ]; then
-    echo "   🎉 Perfect! All nodes are running successfully."
+if [ $active_nodes -eq $NUM_NODES ] && [ $active_tpus -eq $NUM_NODES ]; then
+    echo "   🎉 Perfect! All nodes and TPU listeners are running successfully."
+elif [ $active_nodes -eq $NUM_NODES ] && [ $active_tpus -lt $NUM_NODES ]; then
+    echo "   ⚠️  All APIs running, but some TPU listeners not active. Leaders may not be processing immediate transactions."
 elif [ $active_nodes -gt 0 ]; then
-    echo "   ⚠️  Some nodes failed to start. Check logs for details."
+    echo "   ⚠️  Some nodes/services failed to start. Check logs for details."
 else
     echo "   ❌ No nodes are responding. Check configuration and logs."
 fi
@@ -111,5 +151,7 @@ echo ""
 echo "💡 Useful commands:"
 echo "   📊 Network analysis: python3 analyze_forgers.py"
 echo "   🧪 Run transactions: python3 test_transactions.py --count 10"
+echo "   ⚡ Test TPU Gulf Stream: python3 test_tpu_gulf_stream.py"
 echo "   📈 Monitor network: python3 analyze_forgers.py --watch 30"
+echo "   🔍 Check TPU ports: lsof -i :13000-13009"
 echo "   🛑 Stop all nodes: pkill -f 'run_node.py'"

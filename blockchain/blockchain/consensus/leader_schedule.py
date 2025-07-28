@@ -11,11 +11,11 @@ class LeaderSchedule:
     """
     
     def __init__(self, epoch_duration_hours=24):
-        # Override to use 2 minutes for demonstration
-        self.epoch_duration_seconds = 120  # 2 minutes for demo instead of 24 hours
-        self.slot_duration_seconds = 10  # 10 seconds per slot for leader block production
-        self.slots_per_epoch = self.epoch_duration_seconds // self.slot_duration_seconds  # 12 slots per epoch
-        self.leader_advance_time = 60  # Leaders known 1 minute in advance (reduced for demo)
+        # Updated configuration as requested
+        self.epoch_duration_seconds = 600  # 600 seconds (10 minutes)
+        self.slot_duration_seconds = 0.45  # 450ms per slot for leader block production
+        self.slots_per_epoch = int(self.epoch_duration_seconds / self.slot_duration_seconds)  # ~1333 slots per epoch
+        self.leader_advance_time = 600  # Leaders known 600 seconds (10 minutes) in advance
         
         # Current epoch data
         self.current_epoch = 0
@@ -124,9 +124,10 @@ class LeaderSchedule:
         current_slot = self.get_current_slot()
         return self.current_schedule.get(current_slot)
     
-    def get_upcoming_leaders(self, num_slots: int = 30) -> List[tuple]:
+    def get_upcoming_leaders(self, num_slots: int = 200) -> List[tuple]:
         """
-        Get upcoming leaders for the next N slots (default 30 = 1 minute ahead).
+        Get upcoming leaders for the next N slots (default 200 = minimum buffer for Gulf Stream).
+        Must maintain at least 200 slots ahead for proper transaction forwarding.
         Returns list of (slot_number, leader_public_key, absolute_time) tuples.
         Critical for Gulf Stream forwarding - transactions forwarded to upcoming leaders.
         """
@@ -167,11 +168,13 @@ class LeaderSchedule:
     
     def get_gulf_stream_targets(self) -> List[Dict]:
         """
-        Get the next 30 slots (1 minute) of leaders for Gulf Stream forwarding.
-        Returns detailed info needed for transaction forwarding.
+        Get upcoming leaders for Gulf Stream forwarding with minimum 200 slot buffer.
+        Ensures leaders have sufficient advance notice to prepare for transaction processing.
+        Returns detailed info needed for transaction forwarding via TPU.
         """
         current_time = time.time()
-        upcoming_leaders = self.get_upcoming_leaders(30)  # 1 minute = 30 slots of 2 seconds
+        # Minimum 200 slots ahead to ensure proper forwarding buffer
+        upcoming_leaders = self.get_upcoming_leaders(200)
         
         gulf_stream_targets = []
         for slot, leader, slot_time in upcoming_leaders:
@@ -181,24 +184,36 @@ class LeaderSchedule:
                     'leader': leader,
                     'slot_start_time': slot_time,
                     'slot_end_time': slot_time + self.slot_duration_seconds,
-                    'time_until_slot': slot_time - current_time
+                    'time_until_slot': slot_time - current_time,
+                    'tpu_port': self._calculate_tpu_port(leader)  # TPU port for direct forwarding
                 })
         
         return gulf_stream_targets
     
     def should_forward_to_leader(self, leader_public_key: str, current_time: float) -> bool:
         """
-        Check if transactions should be forwarded to this leader.
-        Leaders receive transactions up to 1 minute before their slot.
+        Check if transactions should be forwarded to this leader via TPU.
+        Must ensure minimum 200 slot buffer before leader's turn.
         """
         upcoming_targets = self.get_gulf_stream_targets()
         
         for target in upcoming_targets:
             if target['leader'] == leader_public_key:
-                # Forward if leader's slot is within 2 minutes
-                return target['time_until_slot'] <= self.leader_advance_time
+                # Ensure at least 200 slots (90 seconds) advance notice
+                min_advance_time = 200 * self.slot_duration_seconds  # 200 * 0.45 = 90 seconds
+                return target['time_until_slot'] >= min_advance_time
         
         return False
+    
+    def _calculate_tpu_port(self, leader_public_key: str) -> int:
+        """
+        Calculate TPU port for a leader based on their public key.
+        TPU ports are used for direct transaction forwarding via UDP.
+        """
+        import hashlib
+        key_hash = hashlib.sha256(leader_public_key.encode()).hexdigest()
+        port_offset = int(key_hash[:8], 16) % 100  # 100 available TPU ports
+        return 13000 + port_offset  # TPU port range: 13000-13099
     
     def is_epoch_transition_needed(self) -> bool:
         """Check if we need to transition to the next epoch"""

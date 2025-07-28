@@ -25,24 +25,30 @@ class GulfStreamProtocol:
         """
         Determine which upcoming leaders should receive this transaction.
         Returns list of leader public keys to forward to.
+        FIXED: Only forward to current leader + next 3 upcoming leaders (4 total max).
         """
         if current_time is None:
             current_time = time.time()
         
-        # Get upcoming leaders for the next 2 minutes (60 slots of 2 seconds each)
-        upcoming_targets = self.leader_schedule.get_gulf_stream_targets()
+        # FIXED: Get current leader + only next 3 upcoming leaders (4 total max)
+        current_leader = self.leader_schedule.get_current_leader()
+        upcoming_leaders = self.leader_schedule.get_upcoming_leaders(3)  # Only next 3 leaders
         
         forward_to_leaders = []
         
-        for target in upcoming_targets:
-            leader = target['leader']
-            time_until_slot = target['time_until_slot']
-            
-            # Forward to leaders whose slots are 2-120 seconds away
-            if 2 <= time_until_slot <= 120:
-                forward_to_leaders.append(leader)
+        # Add current leader if available
+        if current_leader:
+            forward_to_leaders.append(current_leader)
         
-        logger.debug(f"Transaction should be forwarded to {len(forward_to_leaders)} upcoming leaders")
+        # Add next 3 upcoming leaders
+        for slot_num, leader_key, future_time in upcoming_leaders:
+            if leader_key not in forward_to_leaders:  # Avoid duplicates
+                forward_to_leaders.append(leader_key)
+        
+        # Ensure maximum 4 leaders (current + 3 upcoming)
+        forward_to_leaders = forward_to_leaders[:4]
+        
+        logger.debug(f"Transaction should be forwarded to {len(forward_to_leaders)} upcoming leaders (max 4: current + 3 upcoming)")
         return forward_to_leaders
     
     def forward_transaction(self, transaction, target_leaders: List[str]) -> Dict:
@@ -86,7 +92,7 @@ class GulfStreamProtocol:
         
         self.forwarding_stats['total_forwarded'] += 1
         
-        logger.info(f"Gulf Stream forwarded transaction {transaction.id[:8]} to {len(forwarding_results['forwarded_to'])} leaders")
+        logger.info(f"Gulf Stream forwarded transaction {transaction.id[:8]} to {len(forwarding_results['forwarded_to'])} leaders (max 4: current + 3 upcoming)")
         return forwarding_results
     
     def get_forwarded_transactions(self, leader_id: str) -> List:

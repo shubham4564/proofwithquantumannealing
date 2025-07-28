@@ -31,7 +31,7 @@ class TransactionPool:
                 new_pool_transactions.append(pool_transaction)
         self.transactions = new_pool_transactions
 
-    def forging_required(self):  # Method name kept for compatibility
+    def block_proposal_required(self):  # Updated method name for clarity
         """
         Determine if block proposal is required based on:
         1. Fixed 4-second interval - block proposal occurs every 4 seconds regardless of transaction count
@@ -46,6 +46,10 @@ class TransactionPool:
             return True
             
         return False
+    
+    def forging_required(self):  # Compatibility method - delegates to block_proposal_required
+        """Legacy method name for compatibility - delegates to block_proposal_required"""
+        return self.block_proposal_required()
     
     def get_transactions_for_block(self, max_block_size_bytes=None):
         """

@@ -131,11 +131,11 @@ def analyze_block_propagation_failure():
                     print(f"Missing blocks on follower nodes:")
                     
                     for i, block in enumerate(missing_blocks, 1):
-                        forger = block.get("forger", "Unknown")[:30] + "..." if len(str(block.get("forger", ""))) > 30 else block.get("forger", "Unknown")
+                        block_proposer = block.get("forger", "Unknown")[:30] + "..." if len(str(block.get("forger", ""))) > 30 else block.get("forger", "Unknown")  # Note: 'forger' field kept for compatibility
                         tx_count = len(block.get("transactions", []))
                         timestamp = block.get("timestamp", "Unknown")
                         
-                        print(f"   Block {i}: {tx_count} transactions, forger: {forger}, time: {timestamp}")
+                        print(f"   Block {i}: {tx_count} transactions, block proposer: {block_proposer}, time: {timestamp}")
                 
                 print()
                 print("🔧 PROBABLE CAUSES:")

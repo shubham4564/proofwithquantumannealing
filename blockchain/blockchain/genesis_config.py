@@ -37,14 +37,33 @@ class GenesisConfig:
         self.config_dir = Path(config_dir)
         self.config_dir.mkdir(exist_ok=True)
         
-        # Solana-style cluster parameters
+        # Solana-style cluster parameters - Updated for TPU/Gulf Stream implementation
         self.cluster_config = {
             "hashes_per_tick": 12500,  # PoH hashes between ticks
             "ticks_per_slot": 64,      # Ticks per block production slot
-            "slot_duration_seconds": 10,  # 10 seconds per leader slot
+            "slot_duration_seconds": 0.45,  # 450ms per leader slot (Solana-style fast blocks)
+            "epoch_duration_seconds": 600,  # 10 minutes per epoch
+            "slots_per_epoch": 1333,   # ~1333 slots per epoch (600s / 0.45s)
+            "leader_advance_time_seconds": 600,  # Leaders known 10 minutes in advance
             "target_lamports_per_signature": 5000,  # Transaction fee
-            "slots_per_epoch": 12,     # 12 slots per 2-minute epoch (10s * 12 = 120s)
             "epoch_warmup": True,
+            "tpu_config": {
+                "enabled": True,
+                "port_range_start": 13000,
+                "port_range_end": 13099,
+                "max_packet_size": 1024
+            },
+            "gulf_stream_config": {
+                "enabled": True,
+                "min_buffer_slots": 200,
+                "max_forwarding_slots": 200,
+                "transaction_lifetime_seconds": 90
+            },
+            "quantum_consensus_config": {
+                "enabled": True,
+                "leader_selection_algorithm": "quantum_annealing",
+                "viable_leader_threshold": 0.1
+            },
             "inflation": {
                 "initial": 0.08,  # 8% initial inflation
                 "terminal": 0.015,  # 1.5% terminal inflation
