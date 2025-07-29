@@ -36,6 +36,7 @@ class ProtocolEvent(Enum):
     # Transaction Lifecycle
     TRANSACTION_INGRESS = "transaction_ingress"
     TRANSACTION_VALIDATION = "transaction_validation"
+    TRANSACTION_VALIDATION_COMPLETE = "transaction_validation_complete"
     TRANSACTION_POOL_ADD = "transaction_pool_add"
     
     # Block Lifecycle

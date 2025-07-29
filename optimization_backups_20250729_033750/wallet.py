@@ -74,6 +74,7 @@ class Wallet:
             logging.error(f"Invalid signature, data hash: {data_hash}")
 
         return False
+
     def public_key_string(self):
         public_key_pem = self.key_pair.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,

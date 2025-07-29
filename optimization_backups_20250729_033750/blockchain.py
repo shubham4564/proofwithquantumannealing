@@ -32,10 +32,6 @@ except ImportError:
 
 
 class Blockchain:
-    # OPTIMIZATION: Transaction batching configuration for high TPS
-    TRANSACTION_BATCH_SIZE = 100  # Process 100 transactions per batch
-    MAX_BATCH_WAIT_TIME = 0.05    # Max 50ms wait for batch to fill
-
     def __init__(self, genesis_public_key=None):
         """Initialize blockchain with genesis block"""
         self.blocks = []
@@ -798,7 +794,7 @@ class Blockchain:
         # Initialize Sealevel executor if not already present  
         if not hasattr(self, 'sealevel_executor'):
             from blockchain.sealevel_executor import SealevelExecutor
-            self.sealevel_executor = SealevelExecutor(max_workers=32)  # OPTIMIZATION: Increased from 8
+            self.sealevel_executor = SealevelExecutor(max_workers=8)
             logger.info("Initialized SealevelExecutor for parallel execution")
         
         # Execute transactions in parallel
@@ -960,25 +956,6 @@ class Blockchain:
         
         return new_block
     
-
-    def batch_transactions(self, transactions: List, batch_size: int = None) -> List[List]:
-        """
-        OPTIMIZATION: Batch transactions for parallel processing.
-        
-        Groups transactions into batches for efficient parallel execution.
-        Provides significant TPS improvement through batched processing.
-        """
-        if batch_size is None:
-            batch_size = self.TRANSACTION_BATCH_SIZE
-        
-        batches = []
-        for i in range(0, len(transactions), batch_size):
-            batch = transactions[i:i + batch_size]
-            batches.append(batch)
-        
-        logger.info(f"OPTIMIZATION: Created {len(batches)} transaction batches of size {batch_size}")
-        return batches
-
     def broadcast_block_with_turbine(self, block, leader_id: str):
         """
         Broadcast a block using the Turbine protocol.

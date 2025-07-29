@@ -112,7 +112,7 @@ class ParallelExecutionBatch:
         batch_account_state = {}
         
         # Execute transactions in parallel using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(len(self.transactions), 32)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(self.transactions), 8)) as executor:
             # Submit all transactions for parallel execution
             future_to_tx = {}
             for i, (transaction, dependency) in enumerate(zip(self.transactions, self.dependencies)):
@@ -201,8 +201,6 @@ class ParallelExecutionBatch:
 
 
 class SealevelExecutor:
-    # OPTIMIZATION: Increased max workers for higher TPS
-    DEFAULT_MAX_WORKERS = 32  # Increased from 8
     """
     Solana-style parallel transaction executor.
     
@@ -210,7 +208,7 @@ class SealevelExecutor:
     non-conflicting transactions in parallel across multiple CPU cores.
     """
     
-    def __init__(self, max_workers: int = 32):  # OPTIMIZATION: Increased from 8
+    def __init__(self, max_workers: int = 8):
         self.max_workers = max_workers
         self.execution_stats = {
             'total_batches': 0,

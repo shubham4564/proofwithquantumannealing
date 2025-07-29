@@ -2,7 +2,6 @@ import time
 import json
 
 class TransactionPool:
-    # OPTIMIZATION: High-frequency block creation for 2000+ TPS
     def __init__(self):
         self.transactions = []
         self.last_forge_time = time.time()  # Initialize to current time
