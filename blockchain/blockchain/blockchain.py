@@ -17,6 +17,19 @@ from blockchain.gulf_stream import GulfStreamNode
 from gossip_protocol.gossip_node import GossipNode, GossipConfig
 from gossip_protocol.crds import ContactInfo
 
+# Import performance monitoring framework
+try:
+    from performance_monitoring_framework import (
+        initialize_performance_monitoring, get_performance_monitor, 
+        ProtocolEvent, PerformanceInstrumentation,
+        record_transaction_ingress, record_block_creation_start, 
+        record_block_proposal, record_block_finalization, record_event
+    )
+    PERFORMANCE_MONITORING_AVAILABLE = True
+except ImportError:
+    PERFORMANCE_MONITORING_AVAILABLE = False
+    logger.warning("Performance monitoring framework not available")
+
 
 class Blockchain:
     def __init__(self, genesis_public_key=None):
@@ -53,6 +66,18 @@ class Blockchain:
         
         # Will register actual validator keys after genesis configuration is loaded
         self._quantum_consensus_initialized = False
+        
+        # Initialize performance monitoring framework
+        self.performance_monitor = None
+        self.performance_instrumentation = None
+        if PERFORMANCE_MONITORING_AVAILABLE:
+            try:
+                node_id = genesis_public_key[:20] if genesis_public_key else "blockchain_node"
+                self.performance_monitor = initialize_performance_monitoring(node_id, enabled=True)
+                self.performance_instrumentation = PerformanceInstrumentation(self.performance_monitor)
+                logger.info(f"Performance monitoring initialized for node: {node_id}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize performance monitoring: {e}")
         
         self.create_genesis_block()
     
@@ -312,6 +337,17 @@ class Blockchain:
         Returns:
             bool: True if block is valid, False otherwise
         """
+        # Record consensus validation start
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.CONSENSUS_VALIDATION_START,
+                metadata={
+                    'block_number': block.block_count,
+                    'validator_id': validator_node_id[:20] if validator_node_id else 'unknown',
+                    'transaction_count': len(block.transactions) if hasattr(block, 'transactions') else 0
+                }
+            )
+        
         # STEP 1: Check basic block structure
         if not self.block_count_valid(block):
             logger.warning(f"Block {block.block_count} has invalid block count")
@@ -346,9 +382,33 @@ class Blockchain:
         # STEP 6: Check basic transaction validity (signatures and balances)
         if not self.transactions_valid(block.transactions):
             logger.warning(f"Block {block.block_count} has invalid transactions")
+            # Record consensus validation failure
+            if self.performance_monitor:
+                self.performance_monitor.record_event(
+                    event_type=ProtocolEvent.CONSENSUS_VALIDATION_COMPLETE,
+                    metadata={
+                        'block_number': block.block_count,
+                        'validator_id': validator_node_id[:20] if validator_node_id else 'unknown',
+                        'status': 'failed',
+                        'reason': 'invalid_transactions'
+                    }
+                )
             return False
         
         logger.info(f"Block {block.block_count} validated successfully with full Solana verification")
+        
+        # Record successful consensus validation
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.CONSENSUS_VALIDATION_COMPLETE,
+                metadata={
+                    'block_number': block.block_count,
+                    'validator_id': validator_node_id[:20] if validator_node_id else 'unknown',
+                    'status': 'success',
+                    'transaction_count': len(block.transactions) if hasattr(block, 'transactions') else 0,
+                    'state_root_match': True
+                }
+            )
         
         # STEP 7: Create and broadcast vote transaction (NEW - Solana compliant)
         if validator_node_id:
@@ -512,6 +572,13 @@ class Blockchain:
         This is the entry point for transactions into the blockchain network.
         Transactions are automatically forwarded to upcoming leaders.
         """
+        # Record transaction ingress with performance monitoring
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.TRANSACTION_INGRESS,
+                metadata={'transaction_id': transaction.id, 'sender': transaction.sender_public_key[:20]}
+            )
+        
         try:
             logger.info(f"Transaction submitted: {transaction.id[:8]} from {transaction.sender_public_key[:20]}...")
             
@@ -524,12 +591,27 @@ class Blockchain:
             # Update leader schedule to ensure it's current
             self.update_leader_schedule()
             
-            return {
+            result = {
                 'transaction_id': transaction.id,
                 'submitted_at': time.time(),
                 'gulf_stream_status': self.gulf_stream_node.get_gulf_stream_status() if self.gulf_stream_node else None
             }
+            
+            # Record transaction processed
+            if self.performance_monitor:
+                self.performance_monitor.record_event(
+                    event_type=ProtocolEvent.TRANSACTION_VALIDATION_COMPLETE,
+                    metadata={'transaction_id': transaction.id, 'status': 'processed'}
+                )
+            
+            return result
         except Exception as e:
+            # Record transaction failure
+            if self.performance_monitor:
+                self.performance_monitor.record_event(
+                    event_type=ProtocolEvent.TRANSACTION_VALIDATION_COMPLETE,
+                    metadata={'transaction_id': transaction.id, 'status': 'failed', 'error': str(e)}
+                )
             logger.error(f"Error in submit_transaction: {str(e)}")
             raise e
     
@@ -558,6 +640,13 @@ class Blockchain:
     
     def get_current_leader_info(self) -> Dict:
         """Get detailed information about current and upcoming leaders"""
+        # Record leader selection query
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.LEADER_SELECTION,
+                metadata={'query_type': 'current_leader_info'}
+            )
+        
         current_time = time.time()
         current_leader = self.leader_schedule.get_current_leader()
         current_slot = self.leader_schedule.get_current_slot()
@@ -567,7 +656,7 @@ class Blockchain:
         slot_end_time = slot_start_time + self.leader_schedule.slot_duration_seconds
         time_remaining_in_slot = slot_end_time - current_time
         
-        return {
+        result = {
             'current_leader': current_leader[:30] + "..." if current_leader else None,
             'current_slot': current_slot,
             'slot_duration': self.leader_schedule.slot_duration_seconds,
@@ -576,6 +665,20 @@ class Blockchain:
             'slot_end_time': slot_end_time,
             'upcoming_leaders': self.leader_schedule.get_gulf_stream_targets()[:5]  # Next 5 leaders
         }
+        
+        # Record leader selection result
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.LEADER_SELECTION,
+                metadata={
+                    'query_type': 'current_leader_info',
+                    'current_leader': current_leader[:20] if current_leader else None,
+                    'current_slot': current_slot,
+                    'time_remaining_in_slot': max(0, time_remaining_in_slot)
+                }
+            )
+        
+        return result
     
     def am_i_current_leader(self, my_public_key: str) -> bool:
         """Check if this node is the current leader"""
@@ -608,6 +711,13 @@ class Blockchain:
             proposer_wallet: Wallet of the block proposer
             use_gulf_stream: Whether to use Gulf Stream forwarded transactions
         """
+        # Record block creation start
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.BLOCK_CREATION_START,
+                metadata={'proposer': proposer_wallet.public_key_string()[:20] if hasattr(proposer_wallet, 'public_key_string') else 'unknown'}
+            )
+        
         logger.info(f"Starting complete Solana-style block creation with parallel execution")
         
         # Debug: Check what type proposer_wallet actually is
@@ -621,6 +731,13 @@ class Blockchain:
             raise ValueError(f"proposer_wallet must be a Wallet object, got {type(proposer_wallet)}")
         
         proposer_public_key = proposer_wallet.public_key_string()
+        
+        # Record block packing start
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.BLOCK_PACKING_START,
+                metadata={'proposer': proposer_public_key[:20]}
+            )
         
         # Get transactions for this leader
         if use_gulf_stream:
@@ -660,6 +777,13 @@ class Blockchain:
         
         # STEP 3: PARALLEL EXECUTION using Sealevel-style executor
         logger.info(f"STEP 2: Starting Sealevel parallel execution for {len(ordered_transactions)} transactions")
+        
+        # Record execution start
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.BLOCK_EXECUTION_START,
+                metadata={'transaction_count': len(ordered_transactions), 'proposer': proposer_public_key[:20]}
+            )
         
         # Initialize account model if not already present
         if not hasattr(self, 'account_model'):
@@ -705,6 +829,18 @@ class Blockchain:
             }
             logger.info("No transactions to execute, computed empty state root hash")
         
+        # Record execution completion
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.BLOCK_EXECUTION_COMPLETE,
+                metadata={
+                    'transaction_count': len(ordered_transactions),
+                    'execution_time_ms': execution_result.get('total_execution_time_ms', 0),
+                    'parallel_efficiency': execution_result.get('parallel_efficiency', 100),
+                    'proposer': proposer_public_key[:20]
+                }
+            )
+        
         # STEP 4: Block creation (transactions already executed and applied to account_model)
         # The SealevelExecutor has already executed transactions and updated the live account model
         
@@ -745,9 +881,29 @@ class Blockchain:
         
         self.blocks.append(new_block)
         
+        # Record block finalization
+        if self.performance_monitor:
+            self.performance_monitor.record_event(
+                event_type=ProtocolEvent.BLOCK_FINALIZATION,
+                metadata={
+                    'block_number': new_block.block_count,
+                    'transaction_count': len(ordered_transactions),
+                    'block_size_bytes': block_size,
+                    'proposer': proposer_public_key[:20],
+                    'state_root_hash': execution_result.get('state_root_hash', 'none')[:16]
+                }
+            )
+        
         # STEP 8: CRITICAL FIX - Automatic block propagation (Solana compliance)
         # This fixes the 90% network synchronization failure
         try:
+            # Record block propagation start
+            if self.performance_monitor:
+                self.performance_monitor.record_event(
+                    event_type=ProtocolEvent.BLOCK_PROPAGATION_START,
+                    metadata={'block_number': new_block.block_count, 'proposer': proposer_public_key[:20]}
+                )
+            
             # Activate gossip protocol for block distribution
             if self.gossip_node:
                 self._activate_gossip_protocol()
@@ -766,6 +922,18 @@ class Blockchain:
                     "nodes_reached": len(network_results.get('nodes_reached', [])),
                     "shreds_transmitted": network_results.get('shreds_transmitted', 0)
                 })
+                
+                # Record block propagation completion
+                if self.performance_monitor:
+                    self.performance_monitor.record_event(
+                        event_type=ProtocolEvent.BLOCK_PROPAGATION_COMPLETE,
+                        metadata={
+                            'block_number': new_block.block_count,
+                            'nodes_reached': len(network_results.get('nodes_reached', [])),
+                            'shreds_transmitted': network_results.get('shreds_transmitted', 0),
+                            'successful_transmissions': network_results.get('successful_transmissions', 0)
+                        }
+                    )
             
             # Force immediate block distribution to all known nodes (fallback)
             self._force_block_distribution(new_block)
@@ -773,6 +941,16 @@ class Blockchain:
             logger.info(f"CRITICAL FIX: Block {new_block.block_count} automatically propagated to network")
             
         except Exception as e:
+            # Record propagation failure
+            if self.performance_monitor:
+                self.performance_monitor.record_event(
+                    event_type=ProtocolEvent.BLOCK_PROPAGATION_COMPLETE,
+                    metadata={
+                        'block_number': new_block.block_count,
+                        'status': 'failed',
+                        'error': str(e)
+                    }
+                )
             logger.error(f"CRITICAL ERROR: Block propagation failed: {e}")
             # Continue despite propagation failure to avoid leader blocking
         
