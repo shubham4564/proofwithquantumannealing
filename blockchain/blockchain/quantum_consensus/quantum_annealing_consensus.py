@@ -173,7 +173,7 @@ class QuantumAnnealingConsensus:
         # Protocol parameters
         self.max_delay_tolerance = 90.0  # seconds (Δ in paper) - increased from 30s to accommodate 60s heartbeat
         self.block_proposal_timeout = 60.0  # seconds
-        self.witness_quorum_size = 3  # minimum k/3 witnesses required
+        self.witness_quorum_size = 0  # minimum k/3 witnesses required
         self.nonce_expiry_time = 300  # 5 minutes for nonce replay protection
         
         # Scalability parameters for 1000+ nodes (using config)

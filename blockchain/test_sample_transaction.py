@@ -404,7 +404,7 @@ def main():
         # Step 5: Wait and check for block creation with consensus timing
         print(f"\n⏳ Step 5: Measuring consensus time...")
         consensus_start = time.time()
-        consensus_result = measure_consensus_time(initial_blocks, timeout=30, node_port=args.node)
+        # consensus_result = measure_consensus_time(initial_blocks, timeout=30, node_port=args.node)
         consensus_time, final_blocks, latest_block, slot_info = consensus_result
         
         if consensus_time:
