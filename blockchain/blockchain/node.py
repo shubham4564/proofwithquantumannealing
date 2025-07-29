@@ -491,7 +491,7 @@ class Node:
                 "legacy_pool_size": len(self.transaction_pool.transactions),
                 "total_available_transactions": len(available_transactions),
                 "mempool_size": len(self.mempool.transactions),
-                "reason": "Current leader with transactions" if am_current_leader and len(available_transactions) > 0 else "4-second interval reached"
+                "reason": "Current leader with transactions" if am_current_leader and len(available_transactions) > 0 else "450ms interval reached"
             })
             self.propose_block()
         
@@ -506,7 +506,7 @@ class Node:
             })
             self.propose_block()
             logger.info({
-                "message": "Checking 4-second block proposal interval",
+                "message": "Checking 450ms block proposal interval",
                 "block_proposal_required": block_proposal_required,
                 "legacy_pool_size": len(self.transaction_pool.transactions),
                 "mempool_size": len(self.mempool.transactions),
@@ -519,7 +519,7 @@ class Node:
                 time.sleep(0.1)  # Brief delay to allow quantum consensus calculations
                 
             logger.info({
-                "message": "4-second interval reached, attempting quantum consensus block proposal",
+                "message": "450ms interval reached, attempting quantum consensus block proposal",
                 "source": "API" if from_api else "P2P"
             })
             self.propose_block()

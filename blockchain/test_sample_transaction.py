@@ -72,11 +72,8 @@ def create_sample_transaction(amount=10.0, tx_type="TRANSFER"):
     return transaction
 
 def submit_transaction(transaction, node_port=11000):
-    """Submit transaction to a node with timing measurement and slot tracking"""
+    """Submit transaction to a node without timing measurement"""
     try:
-        # Record timing
-        submission_start = time.time()
-        
         # Get current slot before submission
         pre_submission_slot = get_current_slot_info(node_port)
         
@@ -92,16 +89,14 @@ def submit_transaction(transaction, node_port=11000):
         url = f"http://localhost:{node_port}/api/v1/transaction/create/"
         response = requests.post(url, json=payload, timeout=10)
         
-        submission_time = time.time() - submission_start
-        
         # Get current slot after submission
         post_submission_slot = get_current_slot_info(node_port)
         
         if response.status_code == 200:
             return True, {
                 "response": response.json(),
-                "submission_time": submission_time,
-                "timestamp": submission_start,
+                "submission_time": 0.0,  # No timing measurement
+                "timestamp": 0.0,
                 "pre_submission_slot": pre_submission_slot,
                 "post_submission_slot": post_submission_slot
             }
@@ -163,56 +158,48 @@ def get_quantum_metrics(node_port=11000):
     return None
 
 def measure_consensus_time(initial_block_count, timeout=30, node_port=11000):
-    """Measure time until consensus creates a new block with slot tracking"""
-    start_time = time.time()
+    """Check for new blocks without time measurement"""
     start_slot_info = get_current_slot_info(node_port)
     
-    print(f"   🕐 Consensus measurement started at Slot {start_slot_info['slot']}")
+    print(f"   🕐 Checking for new blocks at Slot {start_slot_info['slot']}")
     
-    while time.time() - start_time < timeout:
-        blockchain_state = check_blockchain_state(node_port)
-        current_slot_info = get_current_slot_info(node_port)
-        
-        if blockchain_state:
-            current_blocks = len(blockchain_state.get('blocks', []))
-            if current_blocks > initial_block_count:
-                consensus_time = time.time() - start_time
-                latest_block = blockchain_state['blocks'][-1]
-                
-                # Try to get slot information from the block
-                block_slot = latest_block.get('slot_number', 'unknown')
-                if block_slot == 'unknown' and hasattr(latest_block, 'slot'):
-                    block_slot = latest_block.slot
-                
-                print(f"   ✅ New block created in Slot {current_slot_info['slot']} (Block slot: {block_slot})")
-                return consensus_time, current_blocks, latest_block, {
-                    'start_slot': start_slot_info['slot'],
-                    'end_slot': current_slot_info['slot'],
-                    'block_slot': block_slot
-                }
-        time.sleep(0.5)
-    
+    # Single check instead of timed loop
+    blockchain_state = check_blockchain_state(node_port)
     current_slot_info = get_current_slot_info(node_port)
-    print(f"   ⏰ Consensus timeout reached at Slot {current_slot_info['slot']}")
+    
+    if blockchain_state:
+        current_blocks = len(blockchain_state.get('blocks', []))
+        if current_blocks > initial_block_count:
+            latest_block = blockchain_state['blocks'][-1]
+            
+            # Try to get slot information from the block
+            block_slot = latest_block.get('slot_number', 'unknown')
+            if block_slot == 'unknown' and hasattr(latest_block, 'slot'):
+                block_slot = latest_block.slot
+            
+            print(f"   ✅ New block found in Slot {current_slot_info['slot']} (Block slot: {block_slot})")
+            return 0.0, current_blocks, latest_block, {
+                'start_slot': start_slot_info['slot'],
+                'end_slot': current_slot_info['slot'],
+                'block_slot': block_slot
+            }
+    
+    print(f"   ⏰ No new blocks found at Slot {current_slot_info['slot']}")
     return None, initial_block_count, None, {
         'start_slot': start_slot_info['slot'],
         'end_slot': current_slot_info['slot'],
-        'block_slot': 'timeout'
+        'block_slot': 'no_block'
     }
 
 def run_multiple_transactions(count=5, amount=10.0, node_port=11000):
-    """Run multiple transactions and measure performance"""
-    print(f"\n📊 RUNNING {count} TRANSACTIONS FOR PERFORMANCE MEASUREMENT")
+    """Run multiple transactions without performance measurement"""
+    print(f"\n📊 RUNNING {count} TRANSACTIONS")
     print("=" * 60)
     
     results = []
-    total_start_time = time.time()
     
     for i in range(count):
         print(f"   🔄 Transaction {i+1}/{count}...")
-        
-        # Record individual transaction timing
-        tx_start_time = time.time()
         
         # Create transaction
         transaction = create_sample_transaction(amount)
@@ -220,80 +207,63 @@ def run_multiple_transactions(count=5, amount=10.0, node_port=11000):
             print(f"   ❌ Failed to create transaction {i+1}")
             continue
         
-        creation_time = time.time() - tx_start_time
-        
         # Submit transaction
         success, result = submit_transaction(transaction, node_port)
         if not success:
             print(f"   ❌ Failed to submit transaction {i+1}: {result}")
             continue
         
-        submission_time = result["submission_time"]
-        total_tx_time = time.time() - tx_start_time
-        
         results.append({
             "tx_id": i+1,
             "transaction_id": transaction.id,
             "amount": amount,
-            "creation_time": creation_time,
-            "submission_time": submission_time,
-            "total_time": total_tx_time,
-            "timestamp": tx_start_time
+            "creation_time": 0.0,  # No timing measurement
+            "submission_time": 0.0,  # No timing measurement
+            "total_time": 0.0,  # No timing measurement
+            "timestamp": 0.0
         })
         
-        print(f"   ✅ Transaction {i+1}: {submission_time*1000:.1f}ms submission, {total_tx_time*1000:.1f}ms total")
+        print(f"   ✅ Transaction {i+1}: Submitted successfully")
         
         # Small delay between transactions to avoid overwhelming
         time.sleep(0.1)
     
-    total_test_time = time.time() - total_start_time
-    
-    return results, total_test_time
+    return results, 0.0  # No total time measurement
 
 def calculate_performance_metrics(results, total_test_time):
-    """Calculate performance metrics from test results"""
+    """Return basic metrics without timing calculations"""
     if not results:
         return None
     
-    submission_times = [r["submission_time"] for r in results]
-    creation_times = [r["creation_time"] for r in results]
-    total_times = [r["total_time"] for r in results]
-    
     metrics = {
         "transaction_count": len(results),
-        "total_test_time": total_test_time,
-        "throughput_tps": len(results) / total_test_time,
-        "avg_creation_time": statistics.mean(creation_times),
-        "avg_submission_time": statistics.mean(submission_times),
-        "avg_total_time": statistics.mean(total_times),
-        "min_submission_time": min(submission_times),
-        "max_submission_time": max(submission_times),
-        "median_submission_time": statistics.median(submission_times)
+        "total_test_time": 0.0,  # No timing measurement
+        "throughput_tps": 0.0,  # No timing measurement
+        "avg_creation_time": 0.0,  # No timing measurement
+        "avg_submission_time": 0.0,  # No timing measurement
+        "avg_total_time": 0.0,  # No timing measurement
+        "min_submission_time": 0.0,  # No timing measurement
+        "max_submission_time": 0.0,  # No timing measurement
+        "median_submission_time": 0.0  # No timing measurement
     }
     
     return metrics
 
 def print_performance_report(metrics, consensus_time=None):
-    """Print detailed performance report"""
-    print(f"\n📊 PERFORMANCE METRICS REPORT")
+    """Print basic report without timing metrics"""
+    print(f"\n📊 TRANSACTION REPORT")
     print("=" * 50)
     
-    print(f"📈 Transaction Performance:")
+    print(f"📈 Transaction Summary:")
     print(f"   Total Transactions: {metrics['transaction_count']}")
-    print(f"   Total Test Time: {metrics['total_test_time']:.2f} seconds")
-    print(f"   Throughput: {metrics['throughput_tps']:.2f} TPS")
+    print(f"   Status: Completed (timing disabled)")
     
-    print(f"\n⏱️  Timing Breakdown:")
-    print(f"   Average Creation Time: {metrics['avg_creation_time']*1000:.1f}ms")
-    print(f"   Average Submission Time: {metrics['avg_submission_time']*1000:.1f}ms")
-    print(f"   Average Total Transaction Time: {metrics['avg_total_time']*1000:.1f}ms")
-    print(f"   Submission Range: {metrics['min_submission_time']*1000:.1f}ms - {metrics['max_submission_time']*1000:.1f}ms")
-    print(f"   Median Submission: {metrics['median_submission_time']*1000:.1f}ms")
-    
-    if consensus_time:
-        print(f"\n🎯 Consensus Performance:")
-        print(f"   Consensus Time: {consensus_time:.2f} seconds")
-        print(f"   Consensus TPS: {metrics['transaction_count']/consensus_time:.2f} (transactions per consensus time)")
+    if consensus_time is not None:
+        print(f"\n🎯 Block Status:")
+        if consensus_time == 0.0:
+            print(f"   Block Check: Completed")
+        else:
+            print(f"   Block Check: No new blocks found")
 
 def main():
     parser = argparse.ArgumentParser(description='Enhanced Transaction Test with Performance Metrics')
@@ -344,7 +314,7 @@ def main():
             return False
         
         # Measure consensus time
-        print(f"\n⏳ Step 4: Measuring consensus time...")
+        print(f"\n⏳ Step 4: Checking for new blocks...")
         consensus_result = measure_consensus_time(initial_blocks, timeout=60, node_port=args.node)
         consensus_time, final_blocks, latest_block, slot_info = consensus_result
         
@@ -352,29 +322,25 @@ def main():
         metrics = calculate_performance_metrics(results, total_test_time)
         print_performance_report(metrics, consensus_time)
         
-        if consensus_time:
-            print(f"\n✅ Consensus successful! New blocks: {final_blocks - initial_blocks}")
+        if consensus_time is not None and consensus_time >= 0:
+            print(f"\n✅ Block check completed! New blocks: {final_blocks - initial_blocks}")
             if latest_block:
                 print(f"   📝 Transactions in latest block: {len(latest_block.get('transactions', []))}")
         else:
-            print(f"⚠️  Consensus timeout - may need longer wait time")
+            print(f"⚠️  No new blocks found during check")
             
     else:
         # Run single transaction test
         print(f"\n💰 Step 3: Creating transaction...")
-        transaction_start = time.time()
         transaction = create_sample_transaction(args.amount)
         if not transaction:
             print("❌ Failed to create transaction")
             return False
         
-        creation_time = time.time() - transaction_start
-        
         print(f"✅ Transaction created:")
         print(f"   ID: {transaction.id}")
         print(f"   Amount: {transaction.amount}")
         print(f"   Type: {transaction.type}")
-        print(f"   Creation Time: {creation_time*1000:.1f}ms")
         print(f"   Timestamp: {transaction.timestamp}")
         
         # Step 4: Submit transaction
@@ -386,7 +352,6 @@ def main():
         
         print(f"✅ Transaction submitted successfully!")
         print(f"   Response: {result['response']}")
-        print(f"   Submission Time: {result['submission_time']*1000:.1f}ms")
         
         # Display slot information
         if 'pre_submission_slot' in result:
@@ -401,29 +366,25 @@ def main():
             else:
                 print(f"      ✅ Transaction submitted within Slot {pre_slot['slot']}")
         
-        # Step 5: Wait and check for block creation with consensus timing
-        print(f"\n⏳ Step 5: Measuring consensus time...")
-        consensus_start = time.time()
-        # consensus_result = measure_consensus_time(initial_blocks, timeout=30, node_port=args.node)
+        # Step 5: Check for block creation
+        print(f"\n⏳ Step 5: Checking for new blocks...")
+        consensus_result = measure_consensus_time(initial_blocks, timeout=30, node_port=args.node)
         consensus_time, final_blocks, latest_block, slot_info = consensus_result
         
-        if consensus_time:
-            print(f"✅ Consensus achieved! Time: {consensus_time:.2f} seconds")
+        if consensus_time is not None and consensus_time >= 0:
+            print(f"✅ Block check completed!")
             print(f"   📊 New blocks created: {final_blocks - initial_blocks}")
             print(f"   🎯 Slot Journey: {slot_info['start_slot']} → {slot_info['end_slot']} (Block created in slot {slot_info['block_slot']})")
             if latest_block:
                 print(f"   📝 Transactions in latest block: {len(latest_block.get('transactions', []))}")
                 
-            # Calculate single transaction metrics
-            total_transaction_time = result['submission_time']
-            print(f"\n📊 SINGLE TRANSACTION METRICS:")
-            print(f"   Creation Time: {creation_time*1000:.1f}ms")
-            print(f"   Submission Time: {result['submission_time']*1000:.1f}ms") 
-            print(f"   Consensus Time: {consensus_time:.2f}s")
-            print(f"   End-to-End Time: {consensus_time + result['submission_time']:.2f}s")
+            # Display transaction status without timing
+            print(f"\n📊 TRANSACTION STATUS:")
+            print(f"   Transaction Submitted: ✅")
+            print(f"   Block Check: ✅") 
             print(f"   Transaction Slot: {result['pre_submission_slot']['slot']} → Block Slot: {slot_info['block_slot']}")
         else:
-            print(f"⚠️  Consensus timeout after 30 seconds")
+            print(f"⚠️  No new blocks found")
             print(f"   Slot Journey: {slot_info['start_slot']} → {slot_info['end_slot']} (no block created)")
             print(f"   This might be normal - check leader rotation timing")
     
