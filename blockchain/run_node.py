@@ -4,10 +4,23 @@ import socket
 import time
 from blockchain.node import Node
 from blockchain.utils.logger import logger
+from initialize_performance_metrics import (
+    initialize_performance_metrics,
+    cleanup_performance_metrics,
+    validate_metrics_integration
+)
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
     logger.info({"message": f"Received signal {signum}, shutting down gracefully"})
+    
+    # Clean up performance metrics if they were initialized
+    if hasattr(signal_handler, 'node') and signal_handler.node:
+        try:
+            cleanup_performance_metrics(signal_handler.node)
+        except Exception as e:
+            logger.error({"message": f"Error during metrics cleanup: {e}"})
+    
     sys.exit(0)
 
 def check_port_available(ip, port):
@@ -94,6 +107,9 @@ if __name__ == "__main__":
 
         # Create and start the node
         node = Node(args.ip, args.node_port, args.key_file)
+        
+        # Store node reference for cleanup in signal handler
+        signal_handler.node = node
 
         # Start P2P communication with specified mode
         logger.info({"message": f"Starting P2P communication in {args.p2p_mode} mode"})
@@ -108,19 +124,51 @@ if __name__ == "__main__":
         logger.info({"message": "Starting API server"})
         node.start_node_api(args.api_port)
 
+        # Initialize performance metrics integration AFTER node is fully running
+        logger.info({"message": "Initializing performance metrics collection"})
+        metrics_success = initialize_performance_metrics(node)
+        
+        if metrics_success:
+            logger.info({"message": "✓ Performance metrics initialized successfully"})
+            print("📊 Performance metrics collection enabled")
+            
+            # Validate the integration
+            validation = validate_metrics_integration(node)
+            logger.info({"message": f"Metrics validation: {validation['overall_status']}", "details": validation["details"]})
+            
+            if validation["overall_status"] == "fully_integrated":
+                print("✅ All metrics systems fully integrated")
+            elif validation["overall_status"] == "partially_integrated":
+                print("⚠️ Metrics partially integrated - some features may be limited")
+            else:
+                print("❌ Metrics integration validation failed")
+        else:
+            logger.warning({"message": "Performance metrics initialization failed - node will run without enhanced metrics"})
+            print("⚠️ Running without enhanced performance metrics")
+
         # Keep the main thread alive
         logger.info({"message": "Node fully initialized, running..."})
+        print(f"🌐 Node running at {args.ip}:{args.node_port} (P2P) and {args.ip}:{args.api_port} (API)")
+        if metrics_success:
+            print("📈 Enhanced API endpoints available:")
+            print(f"   - Performance metrics: http://{args.ip}:{args.api_port}/api/v1/blockchain/performance-metrics/")
+            print(f"   - Transaction pool: http://{args.ip}:{args.api_port}/api/v1/blockchain/transaction-pool/")
+            print(f"   - Quantum metrics: http://{args.ip}:{args.api_port}/api/v1/blockchain/quantum-metrics/")
+        
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             logger.info({"message": "Node shutdown requested by user"})
             print("\n🛑 Node shutdown requested")
+            cleanup_performance_metrics(node)
             sys.exit(0)
 
     except KeyboardInterrupt:
         logger.info({"message": "Node shutdown requested by user"})
         print("\n🛑 Node shutdown requested")
+        if 'node' in locals():
+            cleanup_performance_metrics(node)
         sys.exit(0)
     except OSError as e:
         if "Address already in use" in str(e):

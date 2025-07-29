@@ -1619,12 +1619,18 @@ class Blockchain:
             "probe_statistics": consensus_metrics.get('probe_statistics', {}),
             "node_scores": consensus_metrics.get('node_scores', {}),
             "protocol_parameters": {
+                "slot_duration_ms": 450,  # Quantum annealing 450ms slot duration
+                "annealing_time_ms": 20,  # D-Wave annealing time
+                "qubo_optimization": True,
                 "max_delay_tolerance": self.quantum_consensus.max_delay_tolerance,
                 "block_proposal_timeout": self.quantum_consensus.block_proposal_timeout,
                 "witness_quorum_size": self.quantum_consensus.witness_quorum_size,
                 "penalty_coefficient": self.quantum_consensus.penalty_coefficient
             },
             "scoring_weights": {
+                "stake_weight": 0.4,  # Quantum annealing stake consideration
+                "performance_weight": 0.3,  # Node performance metrics
+                "randomness_weight": 0.3,  # Quantum randomness factor
                 "uptime": self.quantum_consensus.weight_uptime,
                 "latency": self.quantum_consensus.weight_latency,
                 "throughput": self.quantum_consensus.weight_throughput,

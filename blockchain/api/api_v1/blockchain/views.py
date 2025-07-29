@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
+import time
 
 router = APIRouter()
 
@@ -15,6 +16,116 @@ async def quantum_metrics(request: Request):
     """Get quantum annealing consensus metrics"""
     node = request.app.state.node
     return node.blockchain.get_quantum_metrics()
+
+
+@router.get("/performance-metrics/", name="Get comprehensive performance metrics")
+async def performance_metrics(request: Request):
+    """Get detailed real-time performance metrics including TPS, consensus timing, and efficiency"""
+    node = request.app.state.node
+    
+    try:
+        # Get enhanced metrics if available
+        if hasattr(node.blockchain, 'metrics_collector'):
+            return {
+                "enhanced_metrics_available": True,
+                "metrics": node.blockchain.metrics_collector.get_comprehensive_metrics(),
+                "quantum_consensus": node.blockchain.get_quantum_metrics(),
+                "real_time_data": {
+                    "current_slot": node.blockchain.leader_schedule.get_current_slot(),
+                    "current_leader": node.blockchain.leader_schedule.get_current_leader()[:30] + "..." if node.blockchain.leader_schedule.get_current_leader() else None,
+                    "transaction_pool": {
+                        "pending_count": len(node.transaction_pool.transactions),
+                        "estimated_size_mb": node.transaction_pool.get_pool_size_estimate() / (1024 * 1024),
+                        "time_until_next_block": node.transaction_pool.get_time_until_next_forge(),
+                        "forge_interval_ms": node.transaction_pool.forge_interval * 1000
+                    }
+                }
+            }
+        else:
+            # Fallback to basic metrics calculation
+            current_time = time.time()
+            basic_metrics = {
+                "enhanced_metrics_available": False,
+                "basic_metrics": {
+                    "total_blocks": len(node.blockchain.blocks),
+                    "pending_transactions": len(node.transaction_pool.transactions),
+                    "forge_interval_seconds": node.transaction_pool.forge_interval,
+                    "time_since_last_block": node.transaction_pool.get_time_since_last_forge(),
+                    "theoretical_tps": 1.0 / node.transaction_pool.forge_interval if node.transaction_pool.forge_interval > 0 else 0
+                },
+                "quantum_consensus": node.blockchain.get_quantum_metrics(),
+                "note": "Enhanced performance metrics not initialized. Use integrate_performance_metrics() to enable detailed analytics."
+            }
+            return basic_metrics
+            
+    except Exception as e:
+        return {
+            "error": f"Failed to get performance metrics: {str(e)}",
+            "basic_info": {
+                "total_blocks": len(node.blockchain.blocks) if hasattr(node, 'blockchain') else 0,
+                "quantum_metrics_available": hasattr(node.blockchain, 'get_quantum_metrics') if hasattr(node, 'blockchain') else False
+            }
+        }
+
+
+@router.get("/transaction-pool/", name="Get transaction pool metrics") 
+async def transaction_pool_metrics(request: Request):
+    """Get detailed transaction pool metrics and statistics"""
+    node = request.app.state.node
+    
+    try:
+        pool = node.transaction_pool
+        current_time = time.time()
+        
+        # Calculate pool statistics
+        pool_size_bytes = pool.get_pool_size_estimate()
+        avg_tx_size = pool_size_bytes // max(1, len(pool.transactions))
+        
+        # Transaction timing analysis
+        time_until_next = pool.get_time_until_next_forge()
+        time_since_last = pool.get_time_since_last_forge()
+        
+        # Calculate efficiency metrics
+        can_fit_in_block = pool.can_fit_in_block(pool.max_block_size_bytes)
+        max_transactions_per_block = pool.max_block_size_bytes // max(avg_tx_size, 1)
+        
+        return {
+            "transaction_pool_stats": {
+                "pending_transactions": len(pool.transactions),
+                "total_size_bytes": pool_size_bytes,
+                "total_size_mb": pool_size_bytes / (1024 * 1024),
+                "average_transaction_size_bytes": avg_tx_size,
+                "can_fit_in_single_block": can_fit_in_block
+            },
+            "timing_metrics": {
+                "forge_interval_ms": pool.forge_interval * 1000,
+                "time_since_last_block_ms": time_since_last * 1000,
+                "time_until_next_block_ms": time_until_next * 1000,
+                "block_proposal_ready": pool.block_proposal_required()
+            },
+            "capacity_analysis": {
+                "max_block_size_mb": pool.max_block_size_bytes / (1024 * 1024),
+                "estimated_max_transactions_per_block": max_transactions_per_block,
+                "current_pool_utilization_percent": (len(pool.transactions) / max(max_transactions_per_block, 1)) * 100,
+                "theoretical_max_tps": max_transactions_per_block / pool.forge_interval
+            },
+            "sample_transactions": [
+                {
+                    "index": i,
+                    "estimated_size_bytes": pool.estimate_transaction_size(tx),
+                    "type": getattr(tx, 'type', 'unknown')
+                }
+                for i, tx in enumerate(pool.transactions[:5])  # Show first 5 transactions
+            ] if pool.transactions else []
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Failed to get transaction pool metrics: {str(e)}",
+            "fallback_data": {
+                "transaction_count": len(node.transaction_pool.transactions) if hasattr(node, 'transaction_pool') else 0
+            }
+        }
 
 
 @router.get("/node-stats/", name="View enhanced node statistics")
@@ -514,3 +625,48 @@ async def health_check(request: Request):
         "blockchain_height": len(node.blockchain.blocks),
         "timestamp": __import__('time').time()
     }
+
+
+@router.post("/initialize-metrics/", name="Initialize performance metrics")
+async def initialize_metrics_runtime(request: Request):
+    """Initialize performance metrics on a running node"""
+    node = request.app.state.node
+    
+    try:
+        from initialize_performance_metrics import initialize_performance_metrics
+        
+        # Check if metrics are already initialized
+        if hasattr(node.blockchain, 'metrics_collector'):
+            return {
+                "status": "already_initialized", 
+                "message": "Performance metrics already active",
+                "enhanced_metrics_available": True
+            }
+        
+        # Initialize metrics
+        success = initialize_performance_metrics(node)
+        
+        if success:
+            return {
+                "status": "initialized",
+                "message": "Performance metrics successfully initialized",
+                "enhanced_metrics_available": True,
+                "endpoints": [
+                    "/api/v1/blockchain/performance-metrics/",
+                    "/api/v1/blockchain/transaction-pool/", 
+                    "/api/v1/blockchain/quantum-metrics/"
+                ]
+            }
+        else:
+            return {
+                "status": "failed",
+                "message": "Failed to initialize performance metrics",
+                "enhanced_metrics_available": False
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error initializing metrics: {str(e)}",
+            "enhanced_metrics_available": False
+        }

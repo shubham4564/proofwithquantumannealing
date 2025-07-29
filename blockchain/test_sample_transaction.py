@@ -271,8 +271,26 @@ def main():
     parser.add_argument('--amount', type=float, default=10.0, help='Transaction amount (default: 10.0)')
     parser.add_argument('--node', type=int, default=11000, help='Node port to use (default: 11000)')
     parser.add_argument('--performance', action='store_true', help='Run performance test with multiple transactions')
+    parser.add_argument('--performance-analysis', action='store_true', help='Generate performance comparison graphs')
     
     args = parser.parse_args()
+    
+    # Run performance analysis if requested
+    if args.performance_analysis:
+        print("🔬 RUNNING PERFORMANCE ANALYSIS")
+        print("=" * 50)
+        try:
+            from performance_analysis import BlockchainPerformanceAnalyzer
+            analyzer = BlockchainPerformanceAnalyzer(node_port=args.node)
+            analyzer.run_complete_analysis()
+            return True
+        except ImportError:
+            print("❌ Performance analysis module not found")
+            print("   Please ensure performance_analysis.py is in the same directory")
+            return False
+        except Exception as e:
+            print(f"❌ Performance analysis failed: {e}")
+            return False
     
     print("🧪 ENHANCED SAMPLE TRANSACTION TEST")
     print("=" * 50)
