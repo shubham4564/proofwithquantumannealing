@@ -1,0 +1,63 @@
+{
+  "mode": "distributed",
+  "computer_id": 4,
+  "total_computers": 6,
+  "subnet_prefix": "192.168.0",
+  "timestamp": 1753940773,
+  "expected_nodes": [
+    {
+      "computer_id": 1,
+      "expected_ip": "192.168.0.1",
+      "p2p_port": 10000,
+      "api_port": 11000,
+      "gossip_port": 12000,
+      "tpu_port": 13000,
+      "tvu_port": 14000
+    },
+    {
+      "computer_id": 2,
+      "expected_ip": "192.168.0.2",
+      "p2p_port": 10001,
+      "api_port": 11001,
+      "gossip_port": 12001,
+      "tpu_port": 13001,
+      "tvu_port": 14001
+    },
+    {
+      "computer_id": 3,
+      "expected_ip": "192.168.0.3",
+      "p2p_port": 10002,
+      "api_port": 11002,
+      "gossip_port": 12002,
+      "tpu_port": 13002,
+      "tvu_port": 14002
+    },
+    {
+      "computer_id": 4,
+      "expected_ip": "192.168.0.4",
+      "p2p_port": 10003,
+      "api_port": 11003,
+      "gossip_port": 12003,
+      "tpu_port": 13003,
+      "tvu_port": 14003
+    },
+    {
+      "computer_id": 5,
+      "expected_ip": "192.168.0.5",
+      "p2p_port": 10004,
+      "api_port": 11004,
+      "gossip_port": 12004,
+      "tpu_port": 13004,
+      "tvu_port": 14004
+    },
+    {
+      "computer_id": 6,
+      "expected_ip": "192.168.0.6",
+      "p2p_port": 10005,
+      "api_port": 11005,
+      "gossip_port": 12005,
+      "tpu_port": 13005,
+      "tvu_port": 14005
+    }
+  ]
+}

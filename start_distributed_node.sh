@@ -5,21 +5,67 @@
 # Run this script on each of the 6 computers in your subnet
 
 # Configuration - MODIFY THESE FOR YOUR NETWORK
-SUBNET_PREFIX="10.283.0"  # Change this to match your subnet (e.g., "10.0.0", "172.16.1")
+SUBNET_PREFIX="10.283.0"  # Default - will auto-detect if possible
 TOTAL_COMPUTERS=6
 
 # Detect computer ID based on IP address or set manually
 COMPUTER_ID=""
 
+# Function to get local IP address (cross-platform)
+get_local_ip() {
+    # Try different methods to get the local IP
+    local ip=""
+    
+    # Method 1: Linux style (hostname -I)
+    if command -v hostname >/dev/null 2>&1; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    
+    # Method 2: macOS/BSD style (ifconfig)
+    if [[ -z "$ip" ]]; then
+        ip=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1)
+    fi
+    
+    # Method 3: Using route command
+    if [[ -z "$ip" ]]; then
+        ip=$(route get default 2>/dev/null | grep interface | awk '{print $2}' | xargs ifconfig 2>/dev/null | grep "inet " | awk '{print $2}' | head -1)
+    fi
+    
+    # Method 4: Python fallback
+    if [[ -z "$ip" ]]; then
+        ip=$(python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null)
+    fi
+    
+    echo "$ip"
+}
+
+# Function to auto-detect subnet from local IP
+detect_subnet() {
+    local_ip=$(get_local_ip)
+    if [[ $local_ip =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
+        detected_subnet="${BASH_REMATCH[1]}"
+        echo "🔍 Auto-detected subnet: ${detected_subnet}.x (from IP: $local_ip)"
+        
+        # Auto-update subnet if different from default
+        if [[ ! $local_ip =~ ^${SUBNET_PREFIX//./\\.}\. ]]; then
+            echo "⚠️ Current configuration expects subnet: ${SUBNET_PREFIX}.x"
+            echo "💡 But your IP suggests subnet: ${detected_subnet}.x"
+            echo "✅ Auto-updating to use detected subnet: ${detected_subnet}.x"
+            SUBNET_PREFIX="$detected_subnet"
+        fi
+    fi
+}
+
 # Function to auto-detect computer ID from IP
 detect_computer_id() {
-    local_ip=$(hostname -I | awk '{print $1}' | cut -d'.' -f4)
+    local_ip=$(get_local_ip)
+    last_octet=$(echo "$local_ip" | cut -d'.' -f4)
     
-    if [[ $local_ip =~ ^[0-9]+$ ]] && [ $local_ip -le $TOTAL_COMPUTERS ]; then
-        COMPUTER_ID=$local_ip
+    if [[ $last_octet =~ ^[0-9]+$ ]] && [ $last_octet -le $TOTAL_COMPUTERS ]; then
+        COMPUTER_ID=$last_octet
     else
         echo "❌ Could not auto-detect computer ID from IP address"
-        echo "Current IP: $(hostname -I | awk '{print $1}')"
+        echo "Current IP: $local_ip"
         echo "Expected format: ${SUBNET_PREFIX}.X where X is 1-${TOTAL_COMPUTERS}"
         echo ""
         echo "Please set COMPUTER_ID manually in this script or use:"
@@ -31,7 +77,11 @@ detect_computer_id() {
 # Parse command line arguments
 if [ $# -eq 1 ]; then
     COMPUTER_ID=$1
+    # Still auto-detect subnet even when computer ID is provided
+    detect_subnet
 elif [ $# -eq 0 ]; then
+    # Auto-detect subnet first, then computer ID
+    detect_subnet
     detect_computer_id
 else
     echo "Usage: $0 [computer_id]"
@@ -53,8 +103,15 @@ echo "Subnet: ${SUBNET_PREFIX}.x"
 echo ""
 
 # Get local IP address
-LOCAL_IP=$(hostname -I | awk '{print $1}')
+LOCAL_IP=$(get_local_ip)
 echo "📍 Local IP Address: $LOCAL_IP"
+
+# Validate we got a valid IP
+if [[ -z "$LOCAL_IP" ]]; then
+    echo "❌ Could not detect local IP address"
+    echo "Please check your network connection or set LOCAL_IP manually"
+    exit 1
+fi
 
 # Validate IP is in expected subnet
 if [[ ! $LOCAL_IP =~ ^${SUBNET_PREFIX//./\\.}\. ]]; then
@@ -112,20 +169,28 @@ if [ $COMPUTER_ID -eq 1 ]; then
     KEY_FILE="./keys/genesis_private_key.pem"
     echo "🔑 Using genesis key for bootstrap node (Computer 1)"
 else
-    KEY_FILE="./keys/computer_${COMPUTER_ID}_private_key.pem"
-    echo "🔑 Using computer-specific key: $KEY_FILE"
+    # Use pre-generated node keys that already exist
+    KEY_FILE="./keys/node${COMPUTER_ID}_private_key.pem"
+    echo "🔑 Using pre-generated key: $KEY_FILE"
     
-    # Generate key if it doesn't exist
+    # Check if the key exists
     if [ ! -f "blockchain/$KEY_FILE" ]; then
-        echo "🔄 Generating new key for Computer $COMPUTER_ID..."
-        cd blockchain
-        python -c "
-from blockchain.transaction.wallet import Wallet
-wallet = Wallet()
-wallet.save_to_file('$KEY_FILE')
-print(f'Key generated: $KEY_FILE')
-"
-        cd ..
+        echo "❌ Key file not found: blockchain/$KEY_FILE"
+        echo "Available keys in blockchain/keys/:"
+        ls -la blockchain/keys/node*_private_key.pem | head -10
+        echo "..."
+        echo "💡 Using a fallback key instead..."
+        
+        # Use a generic fallback key pattern
+        FALLBACK_KEY="./keys/node$((COMPUTER_ID + 1))_private_key.pem"
+        if [ -f "blockchain/$FALLBACK_KEY" ]; then
+            KEY_FILE="$FALLBACK_KEY"
+            echo "✅ Using fallback key: $KEY_FILE"
+        else
+            # Last resort: use genesis key for all nodes
+            KEY_FILE="./keys/genesis_private_key.pem"
+            echo "⚠️ Using genesis key as fallback (not recommended for production)"
+        fi
     fi
 fi
 
