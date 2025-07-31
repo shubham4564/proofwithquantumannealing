@@ -41,21 +41,25 @@ get_local_ip() {
 
 # Function to discover other blockchain nodes in subnet
 discover_network_nodes() {
-    echo "🔍 Discovering other blockchain nodes in the subnet..."
+    echo "🔍 Starting continuous peer discovery..."
     
-    # Run subnet discovery
+    # Start continuous discovery in background
+    python3 continuous_discovery.py $COMPUTER_ID $LOCAL_IP $BASE_API_PORT &
+    DISCOVERY_PID=$!
+    echo $DISCOVERY_PID > /tmp/blockchain_discovery.pid
+    
+    # Initial quick scan
     if python3 subnet_discovery.py $COMPUTER_ID; then
         if [ -f "dynamic_network_config.json" ]; then
-            echo "✅ Dynamic network discovery completed"
-            # Use the dynamic config instead of static one
+            echo "✅ Initial network discovery completed"
             export NETWORK_CONFIG_FILE="dynamic_network_config.json"
             return 0
         else
-            echo "⚠️ Dynamic discovery failed, using static configuration"
+            echo "⚠️ Initial discovery failed, but continuous discovery is running"
             return 1
         fi
     else
-        echo "⚠️ Could not run subnet discovery, using static configuration"
+        echo "⚠️ Could not run initial discovery, but continuous discovery is running"
         return 1
     fi
 }
@@ -353,7 +357,22 @@ monitor_network() {
         if curl -s "http://$LOCAL_IP:$BASE_API_PORT/api/v1/blockchain/" >/dev/null; then
             # Get basic status
             block_count=$(curl -s "http://$LOCAL_IP:$BASE_API_PORT/api/v1/blockchain/" | grep -o '"blocks":\[' | wc -l)
-            echo "📊 $(date '+%H:%M:%S') - Node healthy, API responsive"
+            
+            # Check peer count
+            peer_count=0
+            if [ -f "dynamic_network_config.json" ]; then
+                peer_count=$(python3 -c "
+import json
+try:
+    with open('dynamic_network_config.json', 'r') as f:
+        config = json.load(f)
+    print(len(config.get('discovered_nodes', [])))
+except:
+    print(0)
+")
+            fi
+            
+            echo "📊 $(date '+%H:%M:%S') - Node healthy, API responsive, $peer_count peers"
             
             # Periodically rediscover peers (every 10 minutes)
             current_minute=$(date '+%M')
@@ -391,8 +410,19 @@ echo ""
 # Function to handle cleanup on exit
 cleanup() {
     echo ""
-    echo "🛑 Shutting down blockchain node..."
+    echo "🛑 Shutting down blockchain node and discovery..."
     
+    # Stop discovery process
+    if [ -f /tmp/blockchain_discovery.pid ]; then
+        DISCOVERY_PID=$(cat /tmp/blockchain_discovery.pid)
+        if kill -0 $DISCOVERY_PID 2>/dev/null; then
+            echo "Stopping discovery process $DISCOVERY_PID..."
+            kill $DISCOVERY_PID
+        fi
+        rm -f /tmp/blockchain_discovery.pid
+    fi
+    
+    # Stop blockchain node
     if [ -f /tmp/blockchain_node.pid ]; then
         PID=$(cat /tmp/blockchain_node.pid)
         if kill -0 $PID 2>/dev/null; then
@@ -409,8 +439,9 @@ cleanup() {
     
     # Also kill by process name as backup
     pkill -f "run_node.py" 2>/dev/null || true
+    pkill -f "continuous_discovery.py" 2>/dev/null || true
     
-    echo "✅ Node stopped"
+    echo "✅ All processes stopped"
     exit 0
 }
 
