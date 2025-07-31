@@ -21,7 +21,7 @@ cd blockchain
 python run_node.py \
     --ip 127.0.0.1 \
     --node_port 10000 \
-    --api_port 8050 \
+    --api_port 11000 \
     --key_file ./keys/genesis_private_key.pem \
     --p2p_mode enhanced &
 
@@ -34,7 +34,7 @@ echo "🔄 Starting Node 2..."
 python run_node.py \
     --ip 127.0.0.1 \
     --node_port 10001 \
-    --api_port 8051 \
+    --api_port 11001 \
     --p2p_mode enhanced &
 
 NODE2_PID=$!
@@ -46,7 +46,7 @@ echo "🔄 Starting Node 3..."
 python run_node.py \
     --ip 127.0.0.1 \
     --node_port 10002 \
-    --api_port 8052 \
+    --api_port 11002 \
     --p2p_mode enhanced &
 
 NODE3_PID=$!
@@ -58,7 +58,7 @@ echo "🔄 Starting Node 4..."
 python run_node.py \
     --ip 127.0.0.1 \
     --node_port 10003 \
-    --api_port 8053 \
+    --api_port 11003 \
     --p2p_mode enhanced &
 
 NODE4_PID=$!
@@ -70,7 +70,7 @@ echo "🔄 Starting Node 5..."
 python run_node.py \
     --ip 127.0.0.1 \
     --node_port 10004 \
-    --api_port 8054 \
+    --api_port 11004 \
     --p2p_mode enhanced &
 
 NODE5_PID=$!
@@ -82,7 +82,7 @@ echo "🔄 Starting Node 6..."
 python run_node.py \
     --ip 127.0.0.1 \
     --node_port 10005 \
-    --api_port 8055 \
+    --api_port 11005 \
     --p2p_mode enhanced &
 
 NODE6_PID=$!
@@ -96,51 +96,51 @@ sleep 10
 echo "🔗 Connecting nodes to form P2P network..."
 
 # Connect Node 2 to Node 1
-curl -X POST "http://127.0.0.1:8051/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11001/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10000}' \
     2>/dev/null || echo "⚠️ Node 2 -> Node 1 connection may have failed"
 
 # Connect Node 3 to Node 1 and Node 2
-curl -X POST "http://127.0.0.1:8052/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11002/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10000}' \
     2>/dev/null || echo "⚠️ Node 3 -> Node 1 connection may have failed"
 
-curl -X POST "http://127.0.0.1:8052/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11002/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10001}' \
     2>/dev/null || echo "⚠️ Node 3 -> Node 2 connection may have failed"
 
 # Connect Node 4 to previous nodes
-curl -X POST "http://127.0.0.1:8053/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11003/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10000}' \
     2>/dev/null || echo "⚠️ Node 4 -> Node 1 connection may have failed"
 
-curl -X POST "http://127.0.0.1:8053/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11003/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10002}' \
     2>/dev/null || echo "⚠️ Node 4 -> Node 3 connection may have failed"
 
 # Connect Node 5 to previous nodes
-curl -X POST "http://127.0.0.1:8054/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11004/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10000}' \
     2>/dev/null || echo "⚠️ Node 5 -> Node 1 connection may have failed"
 
-curl -X POST "http://127.0.0.1:8054/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11004/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10003}' \
     2>/dev/null || echo "⚠️ Node 5 -> Node 4 connection may have failed"
 
 # Connect Node 6 to previous nodes
-curl -X POST "http://127.0.0.1:8055/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11005/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10000}' \
     2>/dev/null || echo "⚠️ Node 6 -> Node 1 connection may have failed"
 
-curl -X POST "http://127.0.0.1:8055/api/v1/blockchain/connect-peer/" \
+curl -X POST "http://127.0.0.1:11005/api/v1/blockchain/connect-peer/" \
     -H "Content-Type: application/json" \
     -d '{"ip": "127.0.0.1", "port": 10004}' \
     2>/dev/null || echo "⚠️ Node 6 -> Node 5 connection may have failed"
@@ -155,25 +155,25 @@ echo "🌐 DECENTRALIZED BLOCKCHAIN NETWORK STATUS"
 echo "========================================="
 echo ""
 echo "📊 Node Information:"
-echo "Node 1 (Bootstrap): http://127.0.0.1:8050 (P2P: 10000) - PID: $NODE1_PID"
-echo "Node 2:             http://127.0.0.1:8051 (P2P: 10001) - PID: $NODE2_PID"
-echo "Node 3:             http://127.0.0.1:8052 (P2P: 10002) - PID: $NODE3_PID"
-echo "Node 4:             http://127.0.0.1:8053 (P2P: 10003) - PID: $NODE4_PID"
-echo "Node 5:             http://127.0.0.1:8054 (P2P: 10004) - PID: $NODE5_PID"
-echo "Node 6:             http://127.0.0.1:8055 (P2P: 10005) - PID: $NODE6_PID"
+echo "Node 1 (Bootstrap): http://127.0.0.1:11000 (P2P: 10000) - PID: $NODE1_PID"
+echo "Node 2:             http://127.0.0.1:11001 (P2P: 10001) - PID: $NODE2_PID"
+echo "Node 3:             http://127.0.0.1:11002 (P2P: 10002) - PID: $NODE3_PID"
+echo "Node 4:             http://127.0.0.1:11003 (P2P: 10003) - PID: $NODE4_PID"
+echo "Node 5:             http://127.0.0.1:11004 (P2P: 10004) - PID: $NODE5_PID"
+echo "Node 6:             http://127.0.0.1:11005 (P2P: 10005) - PID: $NODE6_PID"
 echo ""
 echo "🔗 Key Endpoints:"
-echo "Blockchain Explorer:     http://127.0.0.1:8050/api/v1/blockchain/"
-echo "Performance Metrics:     http://127.0.0.1:8050/api/v1/blockchain/performance-metrics/"
-echo "Network Status:          http://127.0.0.1:8050/api/v1/blockchain/network-status/"
-echo "Transaction Submission:  http://127.0.0.1:8050/api/v1/blockchain/transaction/"
+echo "Blockchain Explorer:     http://127.0.0.1:11000/api/v1/blockchain/"
+echo "Performance Metrics:     http://127.0.0.1:11000/api/v1/blockchain/performance-metrics/"
+echo "Network Status:          http://127.0.0.1:11000/api/v1/blockchain/network-status/"
+echo "Transaction Submission:  http://127.0.0.1:11000/api/v1/blockchain/transaction/"
 echo ""
 echo "📈 Additional Node APIs:"
-echo "Node 2 API: http://127.0.0.1:8051/api/v1/blockchain/"
-echo "Node 3 API: http://127.0.0.1:8052/api/v1/blockchain/"
-echo "Node 4 API: http://127.0.0.1:8053/api/v1/blockchain/"
-echo "Node 5 API: http://127.0.0.1:8054/api/v1/blockchain/"
-echo "Node 6 API: http://127.0.0.1:8055/api/v1/blockchain/"
+echo "Node 2 API: http://127.0.0.1:11001/api/v1/blockchain/"
+echo "Node 3 API: http://127.0.0.1:11002/api/v1/blockchain/"
+echo "Node 4 API: http://127.0.0.1:11003/api/v1/blockchain/"
+echo "Node 5 API: http://127.0.0.1:11004/api/v1/blockchain/"
+echo "Node 6 API: http://127.0.0.1:11005/api/v1/blockchain/"
 echo ""
 
 # Function to check network health
@@ -183,7 +183,7 @@ check_network_health() {
     active_nodes=0
     total_nodes=6
     
-    for port in 8050 8051 8052 8053 8054 8055; do
+    for port in 11000 11001 11002 11003 11004 11005; do
         if curl -s "http://127.0.0.1:$port/api/v1/blockchain/" >/dev/null 2>&1; then
             active_nodes=$((active_nodes + 1))
             echo "✅ Node on port $port is responsive"
@@ -212,15 +212,15 @@ check_network_health
 echo ""
 echo "🎯 Test the Network:"
 echo "1. Submit a transaction:"
-echo "   curl -X POST http://127.0.0.1:8050/api/v1/blockchain/transaction/ \\"
+echo "   curl -X POST http://127.0.0.1:11000/api/v1/blockchain/transaction/ \\"
 echo "        -H 'Content-Type: application/json' \\"
 echo "        -d '{\"sender\": \"test_sender\", \"receiver\": \"test_receiver\", \"amount\": 10}'"
 echo ""
 echo "2. View blockchain:"
-echo "   curl http://127.0.0.1:8050/api/v1/blockchain/"
+echo "   curl http://127.0.0.1:11000/api/v1/blockchain/"
 echo ""
 echo "3. Check node connections:"
-echo "   curl http://127.0.0.1:8050/api/v1/blockchain/network-status/"
+echo "   curl http://127.0.0.1:11000/api/v1/blockchain/network-status/"
 echo ""
 
 # Store process IDs for cleanup

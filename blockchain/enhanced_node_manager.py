@@ -136,7 +136,7 @@ class NetworkDiscovery:
                 if hasattr(self, 'subnet_prefix'):
                     new_peers = self.scan_subnet_for_peers(
                         self.subnet_prefix, 
-                        (8050, 8149)  # API port range
+                        (11000, 11099)  # API port range
                     )
                     self._add_discovered_peers(new_peers)
                 

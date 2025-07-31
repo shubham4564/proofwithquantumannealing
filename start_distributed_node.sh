@@ -69,7 +69,7 @@ sleep 2
 
 # Calculate ports based on computer ID
 BASE_P2P_PORT=$((10000 + COMPUTER_ID - 1))
-BASE_API_PORT=$((8050 + COMPUTER_ID - 1))
+BASE_API_PORT=$((11000 + COMPUTER_ID - 1))
 GOSSIP_PORT=$((12000 + COMPUTER_ID - 1))
 TPU_PORT=$((13000 + COMPUTER_ID - 1))
 TVU_PORT=$((14000 + COMPUTER_ID - 1))
@@ -152,7 +152,7 @@ EOF
       "computer_id": $i,
       "expected_ip": "${SUBNET_PREFIX}.$i",
       "p2p_port": $((10000 + i - 1)),
-      "api_port": $((8050 + i - 1)),
+      "api_port": $((11000 + i - 1)),
       "gossip_port": $((12000 + i - 1)),
       "tpu_port": $((13000 + i - 1)),
       "tvu_port": $((14000 + i - 1))
@@ -181,7 +181,7 @@ check_peer_connectivity() {
         fi
         
         target_ip="${SUBNET_PREFIX}.$i"
-        target_port=$((8050 + i - 1))
+        target_port=$((11000 + i - 1))
         
         if timeout 3 bash -c "</dev/tcp/$target_ip/$target_port" 2>/dev/null; then
             echo "✅ Computer $i ($target_ip:$target_port) is reachable"
@@ -263,7 +263,7 @@ if [ $peer_count -gt 0 ]; then
         
         target_ip="${SUBNET_PREFIX}.$i"
         target_p2p_port=$((10000 + i - 1))
-        target_api_port=$((8050 + i - 1))
+        target_api_port=$((11000 + i - 1))
         
         # Check if target node is available
         if timeout 3 bash -c "</dev/tcp/$target_ip/$target_api_port" 2>/dev/null; then

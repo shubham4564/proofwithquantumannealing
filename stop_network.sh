@@ -48,7 +48,7 @@ fi
 
 # Clean up any remaining port bindings
 echo "🔍 Checking for remaining port usage..."
-for port in 8050 8051 8052 8053 8054 8055 10000 10001 10002 10003 10004 10005; do
+for port in 11000 11001 11002 11003 11004 11005 10000 10001 10002 10003 10004 10005; do
     pid=$(lsof -t -i:$port 2>/dev/null)
     if [ ! -z "$pid" ]; then
         echo "Killing process $pid using port $port"

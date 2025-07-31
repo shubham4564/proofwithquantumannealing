@@ -62,7 +62,7 @@ class NetworkHealthChecker:
             node = NodeInfo(
                 computer_id=i + 1,
                 ip="127.0.0.1",
-                api_port=8050 + i,
+                api_port=11000 + i,
                 p2p_port=10000 + i
             )
             self.nodes.append(node)
@@ -73,7 +73,7 @@ class NetworkHealthChecker:
             node = NodeInfo(
                 computer_id=i + 1,
                 ip=f"{self.subnet_prefix}.{i + 1}",
-                api_port=8050 + i,
+                api_port=11000 + i,
                 p2p_port=10000 + i
             )
             self.nodes.append(node)

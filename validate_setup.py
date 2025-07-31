@@ -84,7 +84,7 @@ def check_blockchain_modules():
 def check_port_availability():
     """Check if required ports are available"""
     required_ports = [
-        8050, 8051, 8052, 8053, 8054, 8055,  # API ports
+        11000, 11001, 11002, 11003, 11004, 11005,  # API ports
         10000, 10001, 10002, 10003, 10004, 10005,  # P2P ports
         12000, 12001, 12002, 12003, 12004, 12005,  # Gossip ports
         13000, 13001, 13002, 13003, 13004, 13005,  # TPU ports
@@ -99,12 +99,12 @@ def check_port_availability():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind(('127.0.0.1', port))
-                available_ports.append(port)
-                if port <= 8055:  # Only show status for API ports to avoid spam
-                    print(f"✅ Port {port} available")
+            available_ports.append(port)
+            if port <= 11005:  # Only show status for API ports to avoid spam
+                print(f"✅ Port {port} available")
         except OSError:
             unavailable_ports.append(port)
-            if port <= 8055:  # Only show status for API ports to avoid spam
+            if port <= 11005:  # Only show status for API ports to avoid spam
                 print(f"❌ Port {port} in use")
     
     if unavailable_ports:
