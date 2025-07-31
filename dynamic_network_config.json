@@ -1,0 +1,21 @@
+{
+  "mode": "distributed",
+  "computer_id": 4,
+  "total_computers": 1,
+  "subnet_prefix": "10.240.128",
+  "local_ip": "10.240.128.42",
+  "timestamp": 1753942303,
+  "discovered_nodes": [],
+  "expected_nodes": [
+    {
+      "computer_id": 4,
+      "ip": "10.240.128.42",
+      "p2p_port": 10003,
+      "api_port": 11003,
+      "gossip_port": 12003,
+      "tpu_port": 13003,
+      "tvu_port": 14003,
+      "status": "self"
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Distributed Blockchain Network Setup
-# ====================================
-# Run this script on each of the 6 computers in your subnet
+# Distributed Blockchain Network Setup with Dynamic Discovery
+# ===========================================================
+# Run this script on each computer in your subnet
+# It will automatically discover other blockchain nodes
 
-# Configuration - MODIFY THESE FOR YOUR NETWORK
-SUBNET_PREFIX="10.283.0"  # Default - will auto-detect if possible
+# Configuration
 TOTAL_COMPUTERS=6
 
 # Detect computer ID based on IP address or set manually
@@ -39,70 +39,6 @@ get_local_ip() {
     echo "$ip"
 }
 
-# Function to auto-detect subnet from local IP
-detect_subnet() {
-    local_ip=$(get_local_ip)
-    if [[ $local_ip =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
-        detected_subnet="${BASH_REMATCH[1]}"
-        echo "🔍 Auto-detected subnet: ${detected_subnet}.x (from IP: $local_ip)"
-        
-        # Auto-update subnet if different from default
-        if [[ ! $local_ip =~ ^${SUBNET_PREFIX//./\\.}\. ]]; then
-            echo "⚠️ Current configuration expects subnet: ${SUBNET_PREFIX}.x"
-            echo "💡 But your IP suggests subnet: ${detected_subnet}.x"
-            echo "✅ Auto-updating to use detected subnet: ${detected_subnet}.x"
-            SUBNET_PREFIX="$detected_subnet"
-        fi
-    fi
-}
-
-# Function to auto-detect computer ID from IP
-detect_computer_id() {
-    # Function to get local IP address (cross-platform)
-get_local_ip() {
-    # Try different methods to get the local IP
-    local ip=""
-    
-    # Method 1: Linux style (hostname -I)
-    if command -v hostname >/dev/null 2>&1; then
-        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    fi
-    
-    # Method 2: macOS/BSD style (ifconfig)
-    if [[ -z "$ip" ]]; then
-        ip=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1)
-    fi
-    
-    # Method 3: Using route command
-    if [[ -z "$ip" ]]; then
-        ip=$(route get default 2>/dev/null | grep interface | awk '{print $2}' | xargs ifconfig 2>/dev/null | grep "inet " | awk '{print $2}' | head -1)
-    fi
-    
-    # Method 4: Python fallback
-    if [[ -z "$ip" ]]; then
-        ip=$(python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(('8.8.8.8', 80)); print(s.getsockname()[0]); s.close()" 2>/dev/null)
-    fi
-    
-    echo "$ip"
-}
-
-# Function to auto-detect subnet from local IP
-detect_subnet() {
-    local_ip=$(get_local_ip)
-    if [[ $local_ip =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
-        detected_subnet="${BASH_REMATCH[1]}"
-        echo "🔍 Auto-detected subnet: ${detected_subnet}.x (from IP: $local_ip)"
-        
-        # Auto-update subnet if different from default
-        if [[ ! $local_ip =~ ^${SUBNET_PREFIX//./\.}\. ]]; then
-            echo "⚠️ Current configuration expects subnet: ${SUBNET_PREFIX}.x"
-            echo "💡 But your IP suggests subnet: ${detected_subnet}.x"
-            echo "✅ Auto-updating to use detected subnet: ${detected_subnet}.x"
-            SUBNET_PREFIX="$detected_subnet"
-        fi
-    fi
-}
-
 # Function to discover other blockchain nodes in subnet
 discover_network_nodes() {
     echo "🔍 Discovering other blockchain nodes in the subnet..."
@@ -124,7 +60,7 @@ discover_network_nodes() {
     fi
 }
 
-# Function to auto-detect computer ID from IP (if no discovery available)
+# Function to auto-detect computer ID from IP
 detect_computer_id() {
     local_ip=$(get_local_ip)
     last_octet=$(echo "$local_ip" | cut -d'.' -f4)
@@ -142,20 +78,17 @@ detect_computer_id() {
         exit 1
     fi
 }
-}
 
 # Parse command line arguments
 if [ $# -eq 1 ]; then
     COMPUTER_ID=$1
-    # Still auto-detect subnet even when computer ID is provided
-    detect_subnet
+    echo "💻 Using provided Computer ID: $COMPUTER_ID"
 elif [ $# -eq 0 ]; then
-    # Auto-detect subnet first, then computer ID
-    detect_subnet
     detect_computer_id
 else
     echo "Usage: $0 [computer_id]"
     echo "Example: $0 1  (for first computer)"
+    echo "Note: If no computer_id provided, it will be auto-detected"
     exit 1
 fi
 
@@ -165,11 +98,10 @@ if ! [[ "$COMPUTER_ID" =~ ^[1-6]$ ]]; then
     exit 1
 fi
 
-echo "🌐 Starting Distributed Blockchain Node"
-echo "======================================="
+echo "🌐 Starting Distributed Blockchain Node with Dynamic Discovery"
+echo "============================================================="
 echo "Computer ID: $COMPUTER_ID"
 echo "Total Computers: $TOTAL_COMPUTERS"
-echo "Subnet: ${SUBNET_PREFIX}.x"
 echo ""
 
 # Get local IP address
@@ -179,15 +111,14 @@ echo "📍 Local IP Address: $LOCAL_IP"
 # Validate we got a valid IP
 if [[ -z "$LOCAL_IP" ]]; then
     echo "❌ Could not detect local IP address"
-    echo "Please check your network connection or set LOCAL_IP manually"
+    echo "Please check your network connection"
     exit 1
 fi
 
-# Validate IP is in expected subnet
-if [[ ! $LOCAL_IP =~ ^${SUBNET_PREFIX//./\\.}\. ]]; then
-    echo "⚠️ Warning: Local IP ($LOCAL_IP) doesn't match expected subnet ($SUBNET_PREFIX.x)"
-    echo "Continuing anyway..."
-fi
+# Get subnet info
+SUBNET_PREFIX=$(echo "$LOCAL_IP" | cut -d'.' -f1-3)
+echo "🌐 Subnet: ${SUBNET_PREFIX}.x"
+echo ""
 
 # Kill any existing blockchain processes
 echo "🧹 Cleaning up existing processes..."
@@ -264,81 +195,37 @@ else
     fi
 fi
 
-# Create network discovery configuration
-create_network_config() {
-    cat > network_config.json << EOF
-{
-  "mode": "distributed",
-  "computer_id": $COMPUTER_ID,
-  "total_computers": $TOTAL_COMPUTERS,
-  "subnet_prefix": "$SUBNET_PREFIX",
-  "timestamp": $(date +%s),
-  "expected_nodes": [
-EOF
+# Discover other nodes in the network
+echo ""
+discover_network_nodes
+echo ""
 
-    for i in $(seq 1 $TOTAL_COMPUTERS); do
-        comma=""
-        if [ $i -lt $TOTAL_COMPUTERS ]; then
-            comma=","
-        fi
-        
-        cat >> network_config.json << EOF
-    {
-      "computer_id": $i,
-      "expected_ip": "${SUBNET_PREFIX}.$i",
-      "p2p_port": $((10000 + i - 1)),
-      "api_port": $((11000 + i - 1)),
-      "gossip_port": $((12000 + i - 1)),
-      "tpu_port": $((13000 + i - 1)),
-      "tvu_port": $((14000 + i - 1))
-    }$comma
-EOF
-    done
-
-    cat >> network_config.json << EOF
-  ]
-}
-EOF
-
-    echo "📋 Network configuration created: network_config.json"
-}
-
-create_network_config
-
-# Function to check if other nodes are reachable
+# Function to check if other nodes are reachable (now reads from dynamic config)
 check_peer_connectivity() {
-    echo "🔍 Checking connectivity to other computers..."
+    echo "🔍 Checking connectivity to discovered nodes..."
     
-    reachable_count=0
-    for i in $(seq 1 $TOTAL_COMPUTERS); do
-        if [ $i -eq $COMPUTER_ID ]; then
-            continue  # Skip self
-        fi
+    if [ -f "dynamic_network_config.json" ]; then
+        # Read discovered nodes from dynamic config
+        node_count=$(python3 -c "
+import json
+with open('dynamic_network_config.json', 'r') as f:
+    config = json.load(f)
+    discovered = config.get('discovered_nodes', [])
+    print(len(discovered))
+")
         
-        target_ip="${SUBNET_PREFIX}.$i"
-        target_port=$((11000 + i - 1))
-        
-        if timeout 3 bash -c "</dev/tcp/$target_ip/$target_port" 2>/dev/null; then
-            echo "✅ Computer $i ($target_ip:$target_port) is reachable"
-            reachable_count=$((reachable_count + 1))
+        if [ "$node_count" -gt 0 ]; then
+            echo "✅ Found $node_count other blockchain nodes in the network"
+            return $node_count
         else
-            echo "⚠️ Computer $i ($target_ip:$target_port) is not reachable"
+            echo "⚠️ No other blockchain nodes detected. This node will start in isolation."
+            echo "   Other nodes can join the network dynamically."
+            return 0
         fi
-    done
-    
-    echo ""
-    echo "📊 Connectivity: $reachable_count/$((TOTAL_COMPUTERS - 1)) other computers reachable"
-    
-    if [ $reachable_count -eq 0 ]; then
-        echo "⚠️ No other blockchain nodes detected. This node will start in isolation."
-        echo "   Make sure other computers are running their blockchain nodes."
-    elif [ $reachable_count -ge 2 ]; then
-        echo "🟢 Good connectivity for consensus operations"
     else
-        echo "🟡 Limited connectivity - network may have reduced resilience"
+        echo "⚠️ No dynamic network configuration found."
+        return 0
     fi
-    
-    return $reachable_count
 }
 
 # Start the blockchain node
@@ -350,7 +237,7 @@ cd blockchain
 export COMPUTER_ID
 export TOTAL_COMPUTERS
 export SUBNET_PREFIX
-export NETWORK_CONFIG_FILE="../network_config.json"
+export NETWORK_CONFIG_FILE="../dynamic_network_config.json"
 
 # Start the node
 python run_node.py \
@@ -386,31 +273,47 @@ fi
 check_peer_connectivity
 peer_count=$?
 
-# Auto-connect to other nodes if they're available
-if [ $peer_count -gt 0 ]; then
-    echo "🔗 Attempting to connect to other nodes..."
+# Auto-connect to discovered nodes
+if [ $peer_count -gt 0 ] && [ -f "dynamic_network_config.json" ]; then
+    echo "🔗 Attempting to connect to discovered nodes..."
     sleep 5  # Give a bit more time for full initialization
     
-    for i in $(seq 1 $TOTAL_COMPUTERS); do
-        if [ $i -eq $COMPUTER_ID ]; then
-            continue  # Skip self
-        fi
+    # Connect to nodes using dynamic config
+    python3 -c "
+import json
+import requests
+import time
+
+try:
+    with open('dynamic_network_config.json', 'r') as f:
+        config = json.load(f)
+    
+    local_ip = '$LOCAL_IP'
+    local_api_port = $BASE_API_PORT
+    
+    for node in config.get('discovered_nodes', []):
+        target_ip = node['ip']
+        target_p2p_port = node['p2p_port']
         
-        target_ip="${SUBNET_PREFIX}.$i"
-        target_p2p_port=$((10000 + i - 1))
-        target_api_port=$((11000 + i - 1))
+        print(f'🔄 Connecting to {target_ip}:{target_p2p_port}...')
         
-        # Check if target node is available
-        if timeout 3 bash -c "</dev/tcp/$target_ip/$target_api_port" 2>/dev/null; then
-            echo "🔄 Connecting to Computer $i ($target_ip:$target_p2p_port)..."
-            
-            # Attempt P2P connection
-            curl -X POST "http://$LOCAL_IP:$BASE_API_PORT/api/v1/blockchain/connect-peer/" \
-                -H "Content-Type: application/json" \
-                -d "{\"ip\": \"$target_ip\", \"port\": $target_p2p_port}" \
-                2>/dev/null && echo "✅ Connected to Computer $i" || echo "⚠️ Connection to Computer $i may have failed"
-        fi
-    done
+        try:
+            response = requests.post(
+                f'http://{local_ip}:{local_api_port}/api/v1/blockchain/connect-peer/',
+                json={'ip': target_ip, 'port': target_p2p_port},
+                timeout=5
+            )
+            if response.status_code == 200:
+                print(f'✅ Connected to {target_ip}')
+            else:
+                print(f'⚠️ Connection to {target_ip} may have failed')
+        except Exception as e:
+            print(f'⚠️ Could not connect to {target_ip}: {str(e)[:50]}...')
+        
+        time.sleep(1)
+except Exception as e:
+    print(f'Error connecting to peers: {e}')
+"
 fi
 
 # Display node status
@@ -451,6 +354,13 @@ monitor_network() {
             # Get basic status
             block_count=$(curl -s "http://$LOCAL_IP:$BASE_API_PORT/api/v1/blockchain/" | grep -o '"blocks":\[' | wc -l)
             echo "📊 $(date '+%H:%M:%S') - Node healthy, API responsive"
+            
+            # Periodically rediscover peers (every 10 minutes)
+            current_minute=$(date '+%M')
+            if [ $(( current_minute % 10 )) -eq 0 ]; then
+                echo "🔍 Performing periodic peer discovery..."
+                discover_network_nodes >/dev/null 2>&1 &
+            fi
         else
             echo "⚠️ $(date '+%H:%M:%S') - Node API not responding"
         fi
@@ -473,6 +383,9 @@ echo "        -d '{\"sender\": \"test\", \"receiver\": \"test2\", \"amount\": 10
 echo ""
 echo "3. Check network connections:"
 echo "   curl http://$LOCAL_IP:$BASE_API_PORT/api/v1/blockchain/network-status/"
+echo ""
+echo "4. Rediscover network nodes:"
+echo "   python3 subnet_discovery.py $COMPUTER_ID"
 echo ""
 
 # Function to handle cleanup on exit
@@ -504,8 +417,9 @@ cleanup() {
 # Set up signal handlers
 trap cleanup INT TERM
 
-echo "🌐 Node is running! Press Ctrl+C to stop."
-echo "💡 Run this same script on other computers (with different computer IDs) to form the network."
+echo "🌐 Node is running with dynamic peer discovery!"
+echo "💡 New nodes can join by running this script on other computers in the subnet."
+echo "🔄 Press Ctrl+C to stop."
 
 # Start monitoring
 monitor_network
