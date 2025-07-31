@@ -18,8 +18,8 @@ def create_clean_throughput_graph():
     plt.rcParams['font.size'] = 30
     
     # Data
-    networks = ['Our\nImplementation', 'Bitcoin', 'Ethereum']
-    tps_values = [1001.92, 7.0, 15.0]
+    networks = ['Our\nImplementation', 'PoW', 'PoS']
+    tps_values = [1001.92, 7.0, 70.0]
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -56,7 +56,7 @@ def create_clean_block_time_graph():
     plt.rcParams['font.size'] = 30
     
     # Data
-    networks = ['Our\nImplementation', 'Bitcoin', 'Ethereum']
+    networks = ['Our\nImplementation', 'PoW', 'PoS']
     block_times_seconds = [0.1, 600, 12]
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
@@ -96,7 +96,7 @@ def create_clean_finality_graph():
     plt.rcParams['font.size'] = 30
     
     # Data
-    networks = ['Our\nImplementation', 'Bitcoin', 'Ethereum']
+    networks = ['Our\nImplementation', 'PoW', 'PoS']
     finality_seconds = [0.2, 3600, 384]
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
@@ -137,7 +137,7 @@ def create_minimal_combined_dashboard():
     
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
     
-    networks = ['Our\nImplementation', 'Bitcoin', 'Ethereum']
+    networks = ['Our\nImplementation', 'PoW', 'PoS']
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
     
     # 1. Transaction Throughput
