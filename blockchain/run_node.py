@@ -120,6 +120,27 @@ if __name__ == "__main__":
             node.start_p2p(enhanced=False)
             print(f"🚀 Legacy P2P started with direct broadcast")
 
+        # Initialize enhanced network management if configuration is available
+        try:
+            import os
+            if os.getenv('NETWORK_CONFIG_FILE'):
+                # Import and initialize enhanced network manager
+                import sys
+                sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+                
+                from enhanced_node_manager import enhance_node_with_network_discovery
+                
+                # Enhance node with network discovery capabilities
+                enhanced_node = enhance_node_with_network_discovery(node)
+                
+                print("🔍 Enhanced network discovery enabled")
+                logger.info({"message": "Node enhanced with network discovery and auto-sync capabilities"})
+            else:
+                print("ℹ️ Running in standalone mode (no network config provided)")
+        except Exception as e:
+            logger.warning({"message": f"Could not initialize enhanced network features: {e}"})
+            print("⚠️ Enhanced network features not available")
+
         # Start API server (this now runs in a separate thread)
         logger.info({"message": "Starting API server"})
         node.start_node_api(args.api_port)
